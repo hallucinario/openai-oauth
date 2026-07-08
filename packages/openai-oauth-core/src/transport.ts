@@ -388,8 +388,11 @@ export const createCodexOAuthFetch = (
 		)
 	}
 
-	if (typeof fetch.preconnect === "function") {
-		codexFetch.preconnect = fetch.preconnect.bind(fetch)
+	// biome-ignore lint/suspicious/noExplicitAny: fetch.preconnect is a runtime-optional API not in @types/node
+	const fetchAny = fetch as any
+	if (typeof fetchAny.preconnect === "function") {
+		// biome-ignore lint/suspicious/noExplicitAny: preserving optional preconnect binding
+		;(codexFetch as any).preconnect = fetchAny.preconnect.bind(fetch)
 	}
 
 	return codexFetch

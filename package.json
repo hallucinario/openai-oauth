@@ -2,10 +2,7 @@
 	"name": "openai-oauth-monorepo",
 	"private": true,
 	"description": "Free OpenAI API access with your ChatGPT account.",
-	"packageManager": "bun@1.2.18",
-	"workspaces": [
-		"packages/*"
-	],
+	"packageManager": "pnpm@11.5.2",
 	"scripts": {
 		"build": "turbo run build",
 		"dev": "turbo run dev --parallel",
@@ -16,9 +13,9 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.3.10",
-		"tsup": "^8.5.0",
-		"turbo": "^2.6.3",
-		"typescript": "5.9.2"
+		"tsup": "8.5.1",
+		"turbo": "2.9.16",
+		"typescript": "5.9.3"
 	},
 	"author": "EvanZhouDev",
 	"license": "AGPL-3.0-only",
