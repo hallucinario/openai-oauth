@@ -15,6 +15,8 @@ describe("node server runtime", () => {
 			port: 0,
 		})
 		close = running.close
+		expect(running.localToken).toEqual(expect.any(String))
+		expect(running.localToken?.length).toBeGreaterThanOrEqual(16)
 
 		const response = await fetch(
 			`http://${running.host}:${running.port}/health`,
@@ -24,5 +26,14 @@ describe("node server runtime", () => {
 			ok: true,
 			replay_state: "stateless",
 		})
+	})
+
+	test("rejects non-loopback hosts unless explicitly allowed", async () => {
+		await expect(
+			startOpenAIOAuthServer({
+				host: "0.0.0.0",
+				port: 0,
+			}),
+		).rejects.toThrow("Refusing to listen on non-loopback host")
 	})
 })

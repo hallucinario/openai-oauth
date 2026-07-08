@@ -8,6 +8,7 @@ const DEFAULT_CLIENT_ID =
 const DEFAULT_ISSUER =
 	process.env.CHATGPT_LOCAL_ISSUER ?? "https://auth.openai.com"
 const AUTH_FILENAME = "auth.json"
+const TRUSTED_TOKEN_HOST = "auth.openai.com"
 const REFRESH_EXPIRY_MARGIN_MS = 5 * 60 * 1000
 const REFRESH_INTERVAL_MS = 55 * 60 * 1000
 
@@ -37,6 +38,8 @@ export type AuthLoaderOptions = {
 	clientId?: string
 	issuer?: string
 	tokenUrl?: string
+	/** Allows sending refresh tokens to a non-default OAuth token endpoint. */
+	allowUnsafeTokenUrl?: boolean
 	authFilePath?: string
 	fetch: FetchFunction
 	ensureFresh?: boolean
@@ -224,12 +227,50 @@ const toAuthFile = (input: Record<string, unknown>): AuthFile => {
 	return auth
 }
 
+const resolveOAuthTokenUrl = (
+	issuer: string,
+	tokenUrl: string | undefined,
+	allowUnsafeTokenUrl: boolean | undefined,
+): string => {
+	const raw = tokenUrl ?? `${issuer.replace(/\/$/, "")}/oauth/token`
+	const parsed = new URL(raw)
+	if (parsed.protocol !== "https:") {
+		throw new Error("OAuth token URL must use https.")
+	}
+
+	if (parsed.username.length > 0 || parsed.password.length > 0) {
+		throw new Error("OAuth token URL must not include credentials.")
+	}
+
+	const isTrustedDefaultEndpoint =
+		parsed.hostname === TRUSTED_TOKEN_HOST &&
+		(parsed.port === "" || parsed.port === "443")
+	if (allowUnsafeTokenUrl !== true && !isTrustedDefaultEndpoint) {
+		throw new Error(
+			`Refusing to send OAuth refresh token to untrusted token URL ${parsed.toString()}.`,
+		)
+	}
+
+	return parsed.toString()
+}
+
+const hardenAuthFilePermissions = async (filePath: string): Promise<void> => {
+	if (process.platform === "win32") {
+		return
+	}
+
+	try {
+		await fs.chmod(filePath, 0o600)
+	} catch {}
+}
+
 const readAuthFile = async (candidates: string[]): Promise<AuthReadResult> => {
 	for (const candidate of candidates) {
 		try {
 			const content = await fs.readFile(candidate, "utf-8")
 			const parsed = JSON.parse(content)
 			if (isRecord(parsed)) {
+				await hardenAuthFilePermissions(candidate)
 				return { path: candidate, data: toAuthFile(parsed) }
 			}
 		} catch {}
@@ -251,18 +292,16 @@ const writeAuthFile = async (
 		encoding: "utf-8",
 		mode: 0o600,
 	})
+	await hardenAuthFilePermissions(filePath)
 }
 
 const refreshChatGptTokens = async (
 	refreshToken: string,
 	clientId: string,
-	issuer: string,
-	tokenUrl: string | undefined,
+	tokenUrl: string,
 	fetchFn: FetchFunction,
 ): Promise<RefreshOutcome | undefined> => {
-	const resolvedTokenUrl =
-		tokenUrl ?? `${issuer.replace(/\/$/, "")}/oauth/token`
-	const response = await fetchFn(resolvedTokenUrl, {
+	const response = await fetchFn(tokenUrl, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -324,6 +363,7 @@ export const loadAuthTokens = async (
 		clientId = DEFAULT_CLIENT_ID,
 		issuer = DEFAULT_ISSUER,
 		tokenUrl,
+		allowUnsafeTokenUrl,
 		authFilePath,
 		fetch,
 		ensureFresh = true,
@@ -336,6 +376,11 @@ export const loadAuthTokens = async (
 		)
 	}
 
+	const resolvedTokenUrl = resolveOAuthTokenUrl(
+		issuer,
+		tokenUrl,
+		allowUnsafeTokenUrl,
+	)
 	const readResult = await readAuthFile(resolveAuthFileCandidates(authFilePath))
 	const authData = readResult.data ?? {}
 	const tokens = normalizeTokens(authData.tokens)
@@ -355,8 +400,7 @@ export const loadAuthTokens = async (
 		const refreshed = await refreshChatGptTokens(
 			refreshToken,
 			clientId,
-			issuer,
-			tokenUrl,
+			resolvedTokenUrl,
 			fetch,
 		)
 

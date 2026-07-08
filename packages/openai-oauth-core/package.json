@@ -14,7 +14,7 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"@ai-sdk/provider-utils": "4.0.19"
+		"@ai-sdk/provider-utils": "4.0.20"
 	},
 	"devDependencies": {
 		"@types/node": "20.17.24",

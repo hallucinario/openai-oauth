@@ -14,6 +14,7 @@ const liveTest = process.env.LIVE_CODEX_E2E === "1" ? test : test.skip
 describe("openai oauth server live e2e", () => {
 	let stop: (() => Promise<void>) | undefined
 	let baseURL = ""
+	let localToken = ""
 
 	beforeAll(async () => {
 		const running = await startOpenAIOAuthServer({
@@ -22,6 +23,7 @@ describe("openai oauth server live e2e", () => {
 		})
 		stop = running.close
 		baseURL = running.url
+		localToken = running.localToken ?? ""
 	})
 
 	afterAll(async () => {
@@ -31,7 +33,9 @@ describe("openai oauth server live e2e", () => {
 	liveTest(
 		"supports responses and chat clients through the local server",
 		async () => {
-			const modelsResponse = await fetch(`${baseURL}/models`)
+			const modelsResponse = await fetch(`${baseURL}/models`, {
+				headers: { authorization: `Bearer ${localToken}` },
+			})
 			expect(modelsResponse.ok).toBe(true)
 			const modelsPayload = await modelsResponse.json()
 			expect(Array.isArray(modelsPayload.data)).toBe(true)
@@ -47,6 +51,7 @@ describe("openai oauth server live e2e", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
+					authorization: `Bearer ${localToken}`,
 				},
 				body: JSON.stringify({
 					model: "gpt-5.2",
@@ -69,7 +74,7 @@ describe("openai oauth server live e2e", () => {
 
 			const openai = createOpenAI({
 				baseURL,
-				apiKey: "unused",
+				apiKey: localToken,
 			})
 
 			const smoke = await generateText({

@@ -5,6 +5,7 @@ export {
 export {
 	defaultOpenAIOAuthModels,
 	type OpenAIOAuthServerLogEvent,
+	type OpenAIOAuthFetchHandler,
 	type OpenAIOAuthServerOptions,
 	type RunningOpenAIOAuthServer,
 } from "./types.js"

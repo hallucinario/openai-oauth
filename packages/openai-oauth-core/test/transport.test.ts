@@ -213,6 +213,25 @@ describe("createCodexOAuthFetch", () => {
 		})
 	})
 
+	test("rejects custom upstream base urls unless explicitly allowed", () => {
+		const fetch = vi.fn(async () => new Response(null, { status: 200 }))
+
+		expect(() =>
+			createCodexOAuthFetch({
+				baseURL: "https://example.com/codex",
+				fetch,
+			}),
+		).toThrow("untrusted Codex base URL")
+
+		expect(() =>
+			createCodexOAuthFetch({
+				allowUnsafeBaseURL: true,
+				baseURL: "https://example.com/codex",
+				fetch,
+			}),
+		).not.toThrow()
+	})
+
 	test("can disable local replay state entirely", async () => {
 		const authFilePath = await createAuthFile()
 		const fetch = vi.fn(async () => new Response(null, { status: 200 }))
@@ -308,6 +327,7 @@ describe("createCodexOAuthFetch", () => {
 				fetch,
 				now: () => now,
 				tokenUrl: "https://auth.example.com/custom/token",
+				allowUnsafeTokenUrl: true,
 			})
 
 			await oauthFetch("responses", {

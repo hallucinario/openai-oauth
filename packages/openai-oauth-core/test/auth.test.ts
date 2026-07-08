@@ -153,6 +153,33 @@ describe("loadAuthTokens", () => {
 		}
 	})
 
+	test("rejects custom token urls unless explicitly allowed", async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "auth-token-url-deny-"))
+		const authPath = path.join(root, "auth.json")
+		const fetch = vi.fn()
+
+		try {
+			await writeAuthFile(authPath, {
+				tokens: {
+					access_token: "access",
+					account_id: "acct-1",
+				},
+			})
+
+			await expect(
+				loadAuthTokens({
+					authFilePath: authPath,
+					fetch,
+					ensureFresh: false,
+					tokenUrl: "https://auth.example.com/custom/token",
+				}),
+			).rejects.toThrow("untrusted token URL")
+			expect(fetch).not.toHaveBeenCalled()
+		} finally {
+			await fs.rm(root, { recursive: true, force: true })
+		}
+	})
+
 	test("uses an explicit token url override when refreshing", async () => {
 		const root = await fs.mkdtemp(path.join(os.tmpdir(), "auth-token-url-"))
 		const authPath = path.join(root, "auth.json")
@@ -188,6 +215,7 @@ describe("loadAuthTokens", () => {
 				fetch,
 				now: () => now,
 				tokenUrl: "https://auth.example.com/custom/token",
+				allowUnsafeTokenUrl: true,
 			})
 
 			expect(fetch).toHaveBeenCalledWith(

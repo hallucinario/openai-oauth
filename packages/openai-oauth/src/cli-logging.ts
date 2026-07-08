@@ -66,14 +66,28 @@ export const dim = (text: string, options?: { useColor?: boolean }): string =>
 export const toStartupMessage = (
 	baseUrl: string,
 	availableModels: string[],
-	options?: { useColor?: boolean },
-): string =>
-	[
+	options?: { useColor?: boolean; localToken?: string },
+): string => {
+	const authLines =
+		typeof options?.localToken === "string"
+			? [
+					dim("Use this as your OpenAI base URL.", options),
+					dim(`Use this as your OpenAI API key: ${options.localToken}`, options),
+				]
+			: [
+					dim(
+						"Use this as your OpenAI base URL. Local API authentication is disabled.",
+						options,
+					),
+				]
+
+	return [
 		`OpenAI-compatible endpoint ready at ${underline(baseUrl, options)}`,
-		dim("Use this as your OpenAI base URL. No API key is required.", options),
+		...authLines,
 		"",
 		`Available Models: ${availableModels.join(", ")}`,
 	].join("\n")
+}
 
 export const installCliWarningLogger = (): void => {
 	let hasLoggedWarningSystemMessage = false

@@ -21,16 +21,16 @@
 	},
 	"dependencies": {
 		"@ai-sdk/provider": "3.0.8",
-		"@ai-sdk/provider-utils": "4.0.19"
+		"@ai-sdk/provider-utils": "4.0.20"
 	},
 	"peerDependencies": {
 		"@ai-sdk/openai": "^3.0.41",
-		"ai": "^6.0.116"
+		"ai": "^6.0.118"
 	},
 	"devDependencies": {
 		"@ai-sdk/openai": "3.0.41",
 		"@ai-sdk/provider": "3.0.8",
-		"ai": "6.0.116",
+		"ai": "6.0.118",
 		"@types/node": "20.17.24",
 		"openai-oauth-core": "workspace:*",
 		"typescript": "latest",

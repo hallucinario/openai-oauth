@@ -14,7 +14,7 @@ import { type FetchFunction, withUserAgentSuffix } from "@ai-sdk/provider-utils"
 import {
 	type CodexOAuthSettings,
 	createCodexOAuthFetch,
-	DEFAULT_CODEX_BASE_URL,
+	resolveCodexBaseURL,
 } from "../../openai-oauth-core/src/index.js"
 
 export type OpenAIOAuthModelId = string
@@ -252,7 +252,10 @@ export interface OpenAIOAuthProvider extends ProviderV3 {
 export const createOpenAIOAuth = (
 	settings: OpenAIOAuthProviderSettings = {},
 ): OpenAIOAuthProvider => {
-	const baseURL = settings.baseURL ?? DEFAULT_CODEX_BASE_URL
+	const baseURL = resolveCodexBaseURL(
+		settings.baseURL,
+		settings.allowUnsafeBaseURL,
+	)
 	const providerName = settings.name ?? "openai"
 	const oauthFetch = createCodexOAuthFetch(settings)
 

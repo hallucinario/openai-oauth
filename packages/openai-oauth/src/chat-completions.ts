@@ -28,6 +28,7 @@ const isChatRequest = (value: unknown): value is ChatRequest =>
 const toChatCompletionResponse = (
 	result: ChatCompletionResultShape,
 	request: ChatRequest,
+	headers?: HeadersInit,
 ): Response => {
 	const toolCalls = result.toolCalls.map((toolCall) => ({
 		id: toolCall.toolCallId,
@@ -38,30 +39,35 @@ const toChatCompletionResponse = (
 		},
 	}))
 
-	return toJsonResponse({
-		id: `chatcmpl_${crypto.randomUUID()}`,
-		object: "chat.completion",
-		created: Math.floor(Date.now() / 1000),
-		model: request.model,
-		choices: [
-			{
-				index: 0,
-				message: {
-					role: "assistant",
-					content: result.text.length > 0 ? result.text : null,
-					tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+	return toJsonResponse(
+		{
+			id: `chatcmpl_${crypto.randomUUID()}`,
+			object: "chat.completion",
+			created: Math.floor(Date.now() / 1000),
+			model: request.model,
+			choices: [
+				{
+					index: 0,
+					message: {
+						role: "assistant",
+						content: result.text.length > 0 ? result.text : null,
+						tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+					},
+					finish_reason: mapFinishReason(result.finishReason),
 				},
-				finish_reason: mapFinishReason(result.finishReason),
-			},
-		],
-		usage: toUsage(result.usage),
-	})
+			],
+			usage: toUsage(result.usage),
+		},
+		200,
+		headers,
+	)
 }
 
 export const handleChatCompletionsRequest = async (
 	request: Request,
 	provider: OpenAIOAuthProvider,
 	logger: ((event: OpenAIOAuthServerLogEvent) => void) | undefined,
+	headers?: HeadersInit,
 ): Promise<Response> => {
 	const requestId = crypto.randomUUID()
 	const startedAt = Date.now()
@@ -75,7 +81,12 @@ export const handleChatCompletionsRequest = async (
 			durationMs: Date.now() - startedAt,
 			message: "`messages` must be an array.",
 		})
-		return toErrorResponse("`messages` must be an array.")
+		return toErrorResponse(
+			"`messages` must be an array.",
+			400,
+			"invalid_request_error",
+			headers,
+		)
 	}
 
 	emitRequestLog(logger, {
@@ -90,6 +101,7 @@ export const handleChatCompletionsRequest = async (
 			logger,
 			requestId,
 			startedAt,
+			headers,
 		})
 	}
 
@@ -127,7 +139,7 @@ export const handleChatCompletionsRequest = async (
 			usage: result.usage,
 		})
 
-		return toChatCompletionResponse(result, body)
+		return toChatCompletionResponse(result, body, headers)
 	} catch (error) {
 		emitRequestLog(logger, {
 			type: "chat_error",

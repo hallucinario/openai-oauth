@@ -25,6 +25,16 @@ describe("openai oauth cli", () => {
 			"https://auth.example.com/oauth/token",
 			"--oauth-file",
 			"/tmp/auth.json",
+			"--local-token",
+			"test-local-token-123",
+			"--allow-origin",
+			"http://127.0.0.1:3000",
+			"--max-body-bytes",
+			"1234",
+			"--allow-unsafe-remote-bind",
+			"--allow-unsafe-base-url",
+			"--allow-unsafe-oauth-token-url",
+			"--no-update-check",
 		])
 
 		expect(toServerOptions(parsed)).toMatchObject({
@@ -36,7 +46,14 @@ describe("openai oauth cli", () => {
 			clientId: "client-123",
 			tokenUrl: "https://auth.example.com/oauth/token",
 			authFilePath: "/tmp/auth.json",
+			localToken: "test-local-token-123",
+			allowedOrigins: ["http://127.0.0.1:3000"],
+			maxBodyBytes: 1234,
+			allowUnsafeRemoteBind: true,
+			allowUnsafeBaseURL: true,
+			allowUnsafeTokenUrl: true,
 		})
+		expect(parsed.disableUpdateCheck).toBe(true)
 	})
 
 	test("drops empty model entries", () => {
@@ -44,16 +61,18 @@ describe("openai oauth cli", () => {
 		expect(parsed.models).toEqual(["gpt-5.4", "gpt-5.2"])
 	})
 
-	test("formats the default startup message for local usage", () => {
+	test("formats the startup message with a local token", () => {
 		expect(
-			toStartupMessage("http://127.0.0.1:10531/v1", [
-				"gpt-5.4",
-				"gpt-5.3-codex",
-			]),
+			toStartupMessage(
+				"http://127.0.0.1:10531/v1",
+				["gpt-5.4", "gpt-5.3-codex"],
+				{ localToken: "test-local-token-123" },
+			),
 		).toBe(
 			[
 				"OpenAI-compatible endpoint ready at http://127.0.0.1:10531/v1",
-				"Use this as your OpenAI base URL. No API key is required.",
+				"Use this as your OpenAI base URL.",
+				"Use this as your OpenAI API key: test-local-token-123",
 				"",
 				"Available Models: gpt-5.4, gpt-5.3-codex",
 			].join("\n"),

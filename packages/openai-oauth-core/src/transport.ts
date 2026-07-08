@@ -11,10 +11,14 @@ import { collectCompletedResponseFromSse } from "./sse.js"
 import { CodexResponsesState } from "./state.js"
 
 export const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
+const TRUSTED_CODEX_HOST = "chatgpt.com"
+const TRUSTED_CODEX_PATH = "/backend-api/codex"
 const DEFAULT_CODEX_INSTRUCTIONS = ""
 
 export type CodexOAuthSettings = Omit<AuthLoaderOptions, "fetch"> & {
 	baseURL?: string
+	/** Allows sending access tokens to a non-default Codex upstream. */
+	allowUnsafeBaseURL?: boolean
 	codexVersion?: string
 	fetch?: FetchFunction
 	headers?: Record<string, string>
@@ -52,6 +56,7 @@ class AuthManager {
 			clientId: this.settings.clientId,
 			issuer: this.settings.issuer,
 			tokenUrl: this.settings.tokenUrl,
+			allowUnsafeTokenUrl: this.settings.allowUnsafeTokenUrl,
 			fetch: this.fetch,
 			ensureFresh: this.settings.ensureFresh,
 			now: this.settings.now,
@@ -98,8 +103,32 @@ export const getDefaultCodexInstructions = (): string => {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value)
 
-const resolveBaseURL = (baseURL?: string): string => {
-	return withoutTrailingSlash(baseURL) ?? DEFAULT_CODEX_BASE_URL
+export const resolveCodexBaseURL = (
+	baseURL?: string,
+	allowUnsafeBaseURL?: boolean,
+): string => {
+	const resolvedBaseURL = withoutTrailingSlash(baseURL) ?? DEFAULT_CODEX_BASE_URL
+	const parsed = new URL(resolvedBaseURL)
+	if (parsed.protocol !== "https:") {
+		throw new Error("Codex upstream base URL must use https.")
+	}
+
+	if (parsed.username.length > 0 || parsed.password.length > 0) {
+		throw new Error("Codex upstream base URL must not include credentials.")
+	}
+
+	const normalizedPath = withoutTrailingSlash(parsed.pathname) ?? ""
+	const isTrustedDefaultUpstream =
+		parsed.hostname === TRUSTED_CODEX_HOST &&
+		(parsed.port === "" || parsed.port === "443") &&
+		normalizedPath === TRUSTED_CODEX_PATH
+	if (allowUnsafeBaseURL !== true && !isTrustedDefaultUpstream) {
+		throw new Error(
+			`Refusing to send ChatGPT access token to untrusted Codex base URL ${parsed.origin}${normalizedPath}.`,
+		)
+	}
+
+	return resolvedBaseURL
 }
 
 const resolveTargetUrl = (input: string, baseURL: string): string => {
@@ -308,7 +337,10 @@ export const createCodexOAuthFetch = (
 ): FetchFunction => {
 	const fetch = pickFetch(settings.fetch)
 	const authManager = new AuthManager(settings, fetch)
-	const baseURL = resolveBaseURL(settings.baseURL)
+	const baseURL = resolveCodexBaseURL(
+		settings.baseURL,
+		settings.allowUnsafeBaseURL,
+	)
 	const responsesState =
 		settings.responsesState === false
 			? undefined
@@ -372,7 +404,10 @@ export type CodexOAuthClient = {
 export const createCodexOAuthClient = (
 	settings: CodexOAuthSettings = {},
 ): CodexOAuthClient => {
-	const baseURL = resolveBaseURL(settings.baseURL)
+	const baseURL = resolveCodexBaseURL(
+		settings.baseURL,
+		settings.allowUnsafeBaseURL,
+	)
 	const fetch = createCodexOAuthFetch(settings)
 
 	return {

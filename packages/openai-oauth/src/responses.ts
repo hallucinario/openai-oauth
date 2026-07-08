@@ -5,8 +5,8 @@ import {
 } from "../../openai-oauth-core/src/index.js"
 import {
 	copyUpstreamResponse,
-	corsHeaders,
 	isRecord,
+	mergeHeaders,
 	sseHeaders,
 	toErrorResponse,
 	toJsonResponse,
@@ -18,15 +18,24 @@ export const handleResponsesRequest = async (
 	request: Request,
 	settings: OpenAIOAuthServerOptions,
 	client: CodexOAuthClient,
+	headers?: HeadersInit,
 ): Promise<Response> => {
 	const body = await request.json()
 	if (!isRecord(body)) {
-		return toErrorResponse("Request body must be a JSON object.")
+		return toErrorResponse(
+			"Request body must be a JSON object.",
+			400,
+			"invalid_request_error",
+			headers,
+		)
 	}
 
 	if (usesServerReplayState(body)) {
 		return toErrorResponse(
 			"Stateless Codex responses endpoint does not support `previous_response_id` or `item_reference`. Replay the full conversation history in `input` on each request.",
+			400,
+			"invalid_request_error",
+			headers,
 		)
 	}
 
@@ -46,21 +55,18 @@ export const handleResponsesRequest = async (
 	})
 
 	if (!upstream.ok) {
-		return copyUpstreamResponse(upstream)
+		return copyUpstreamResponse(upstream, headers)
 	}
 
 	if (wantsStream) {
 		return new Response(upstream.body, {
 			status: upstream.status,
-			headers: {
-				...sseHeaders,
-				...corsHeaders,
-			},
+			headers: mergeHeaders(sseHeaders, headers),
 		})
 	}
 
 	const completed = await collectCompletedResponseFromSse(
 		upstream.body ?? new ReadableStream(),
 	)
-	return toJsonResponse(completed)
+	return toJsonResponse(completed, 200, headers)
 }

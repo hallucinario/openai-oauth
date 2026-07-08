@@ -31,6 +31,7 @@ describe("openai oauth server", () => {
 
 	test("lists configured models", async () => {
 		const handler = createOpenAIOAuthFetchHandler({
+			localToken: false,
 			models: ["gpt-5.2", "gpt-5.1-codex"],
 		})
 
@@ -60,6 +61,64 @@ describe("openai oauth server", () => {
 		})
 	})
 
+	test("requires the local bearer token for v1 routes", async () => {
+		const handler = createOpenAIOAuthFetchHandler({
+			localToken: "test-local-token-123",
+			models: ["gpt-5.2"],
+		})
+
+		const unauthorized = await handler(
+			new Request("http://localhost/v1/models", {
+				method: "GET",
+			}),
+		)
+		expect(unauthorized.status).toBe(401)
+
+		const authorized = await handler(
+			new Request("http://localhost/v1/models", {
+				method: "GET",
+				headers: {
+					authorization: "Bearer test-local-token-123",
+				},
+			}),
+		)
+		expect(authorized.status).toBe(200)
+	})
+
+	test("rejects unlisted browser origins", async () => {
+		const handler = createOpenAIOAuthFetchHandler({
+			localToken: "test-local-token-123",
+			models: ["gpt-5.2"],
+			allowedOrigins: ["http://127.0.0.1:3000"],
+		})
+
+		const denied = await handler(
+			new Request("http://localhost/v1/models", {
+				method: "GET",
+				headers: {
+					authorization: "Bearer test-local-token-123",
+					origin: "http://evil.example",
+				},
+			}),
+		)
+		expect(denied.status).toBe(403)
+		expect(denied.headers.get("access-control-allow-origin")).toBeNull()
+
+		const allowed = await handler(
+			new Request("http://localhost/v1/models", {
+				method: "GET",
+				headers: {
+					authorization: "Bearer test-local-token-123",
+					origin: "http://127.0.0.1:3000",
+				},
+			}),
+		)
+		expect(allowed.status).toBe(200)
+		expect(allowed.headers.get("access-control-allow-origin")).toBe(
+			"http://127.0.0.1:3000",
+		)
+	})
+
 	test("loads account models from codex when no override is configured", async () => {
 		const authFilePath = await createAuthFile()
 		const fetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -83,6 +142,7 @@ describe("openai oauth server", () => {
 			)
 		})
 		const handler = createOpenAIOAuthFetchHandler({
+			localToken: false,
 			authFilePath,
 			ensureFresh: false,
 			fetch,
@@ -137,6 +197,7 @@ describe("openai oauth server", () => {
 				),
 		)
 		const handler = createOpenAIOAuthFetchHandler({
+			localToken: false,
 			authFilePath,
 			ensureFresh: false,
 			fetch,
@@ -201,6 +262,7 @@ describe("openai oauth server", () => {
 		})
 
 		const handler = createOpenAIOAuthFetchHandler({
+			localToken: false,
 			authFilePath,
 			ensureFresh: false,
 			fetch,
@@ -246,6 +308,7 @@ describe("openai oauth server", () => {
 		const authFilePath = await createAuthFile()
 		const fetch = vi.fn()
 		const handler = createOpenAIOAuthFetchHandler({
+			localToken: false,
 			authFilePath,
 			ensureFresh: false,
 			fetch,
@@ -273,6 +336,7 @@ describe("openai oauth server", () => {
 	test("emits a chat error log when messages is invalid", async () => {
 		const requestLogger = vi.fn()
 		const handler = createOpenAIOAuthFetchHandler({
+			localToken: false,
 			requestLogger,
 		})
 

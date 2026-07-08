@@ -129,6 +129,20 @@ export type OpenAIOAuthServerOptions = Omit<
 	models?: string[]
 	codexVersion?: string
 	requestLogger?: (event: OpenAIOAuthServerLogEvent) => void
+	/** Bearer token required for local /v1 requests. Set false only for trusted tests or embedded use. */
+	localToken?: string | false
+	/** Exact browser Origins allowed by CORS. Undefined rejects browser Origin requests; false enables wildcard CORS. */
+	allowedOrigins?: string[] | false
+	/** Maximum request body size accepted by the Node HTTP server. Defaults to 10 MiB. */
+	maxBodyBytes?: number
+	/** Allow binding to non-loopback interfaces such as 0.0.0.0. */
+	allowUnsafeRemoteBind?: boolean
+}
+
+export type OpenAIOAuthFetchHandler = ((
+	request: Request,
+) => Promise<Response>) & {
+	localToken?: string
 }
 
 export type RunningOpenAIOAuthServer = {
@@ -136,6 +150,7 @@ export type RunningOpenAIOAuthServer = {
 	host: string
 	port: number
 	url: string
+	localToken?: string
 	close: () => Promise<void>
 }
 

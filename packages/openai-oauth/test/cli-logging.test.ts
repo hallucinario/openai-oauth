@@ -21,9 +21,27 @@ describe("cli logging", () => {
 		).toBe(
 			[
 				"OpenAI-compatible endpoint ready at http://127.0.0.1:10531/v1",
-				"Use this as your OpenAI base URL. No API key is required.",
+				"Use this as your OpenAI base URL. Local API authentication is disabled.",
 				"",
 				"Available Models: gpt-5.4, gpt-5.3-codex",
+			].join("\n"),
+		)
+	})
+
+	test("prints the generated local API key when auth is enabled", () => {
+		expect(
+			toStartupMessage(
+				"http://127.0.0.1:10531/v1",
+				["gpt-5.4"],
+				{ localToken: "test-local-token-123" },
+			),
+		).toBe(
+			[
+				"OpenAI-compatible endpoint ready at http://127.0.0.1:10531/v1",
+				"Use this as your OpenAI base URL.",
+				"Use this as your OpenAI API key: test-local-token-123",
+				"",
+				"Available Models: gpt-5.4",
 			].join("\n"),
 		)
 	})

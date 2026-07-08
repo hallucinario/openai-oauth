@@ -1,5 +1,5 @@
 import { jsonSchema, type ModelMessage, tool } from "ai"
-import { isJsonValue, isRecord } from "./shared.js"
+import { isJsonValue, isRecord, toSafeRemoteImageUrl } from "./shared.js"
 import type {
 	ChatMessage,
 	ChatToolChoice,
@@ -99,9 +99,10 @@ const toUserContent = (content: unknown) => {
 			isRecord(item.image_url) &&
 			typeof item.image_url.url === "string"
 		) {
-			try {
-				parts.push({ type: "image", image: new URL(item.image_url.url) })
-			} catch {}
+			const imageUrl = toSafeRemoteImageUrl(item.image_url.url)
+			if (imageUrl) {
+				parts.push({ type: "image", image: imageUrl })
+			}
 		}
 	}
 
