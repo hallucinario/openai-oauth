@@ -6,6 +6,7 @@ import {
 	type AuthLoaderOptions,
 	type EffectiveAuth,
 	loadAuthTokens,
+	parseJwtClaims,
 } from "./auth.js"
 import { collectCompletedResponseFromSse } from "./sse.js"
 import { CodexResponsesState } from "./state.js"
@@ -14,6 +15,8 @@ export const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 const TRUSTED_CODEX_HOST = "chatgpt.com"
 const TRUSTED_CODEX_PATH = "/backend-api/codex"
 const DEFAULT_CODEX_INSTRUCTIONS = ""
+const REFRESH_EXPIRY_MARGIN_MS = 5 * 60 * 1000
+const REFRESH_INTERVAL_MS = 55 * 60 * 1000
 
 export type CodexOAuthSettings = Omit<AuthLoaderOptions, "fetch"> & {
 	baseURL?: string
@@ -37,6 +40,7 @@ type RequestParts = {
 
 class AuthManager {
 	private current?: EffectiveAuth
+	private currentLoadedAt?: number
 	private inflight?: Promise<EffectiveAuth>
 	private readonly settings: CodexOAuthSettings
 	private readonly fetch: FetchFunction
@@ -63,6 +67,7 @@ class AuthManager {
 		})
 			.then((auth) => {
 				this.current = auth
+				this.currentLoadedAt = (this.settings.now?.() ?? new Date()).getTime()
 				this.inflight = undefined
 				return auth
 			})
@@ -74,7 +79,23 @@ class AuthManager {
 		return this.inflight
 	}
 
+	private needsRefresh(auth: EffectiveAuth): boolean {
+		const now = (this.settings.now?.() ?? new Date()).getTime()
+		const claims = parseJwtClaims(auth.accessToken)
+		const exp = claims && typeof claims.exp === "number" ? claims.exp : undefined
+		if (typeof exp === "number") {
+			return exp * 1000 <= now + REFRESH_EXPIRY_MARGIN_MS
+		}
+		if (this.currentLoadedAt != null) {
+			return now - this.currentLoadedAt >= REFRESH_INTERVAL_MS
+		}
+		return false
+	}
+
 	async headers(): Promise<Record<string, string>> {
+		if (this.current && this.needsRefresh(this.current)) {
+			this.current = undefined
+		}
 		const auth = this.current ?? (await this.ensure())
 		return {
 			Authorization: `Bearer ${auth.accessToken}`,
@@ -388,8 +409,11 @@ export const createCodexOAuthFetch = (
 		)
 	}
 
-	if (typeof fetch.preconnect === "function") {
-		codexFetch.preconnect = fetch.preconnect.bind(fetch)
+	// biome-ignore lint/suspicious/noExplicitAny: fetch.preconnect is a runtime-optional API not in @types/node
+	const fetchAny = fetch as any
+	if (typeof fetchAny.preconnect === "function") {
+		// biome-ignore lint/suspicious/noExplicitAny: preserving optional preconnect binding
+		;(codexFetch as any).preconnect = fetchAny.preconnect.bind(fetch)
 	}
 
 	return codexFetch

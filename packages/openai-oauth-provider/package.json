@@ -14,7 +14,7 @@
 	],
 	"scripts": {
 		"build": "tsup src/index.ts --format esm --dts --outDir dist --clean",
-		"prepublishOnly": "bun run build",
+		"prepublishOnly": "pnpm run build",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
 		"test:live": "LIVE_CODEX_E2E=1 vitest run test/live.e2e.test.ts"
@@ -33,9 +33,9 @@
 		"ai": "6.0.118",
 		"@types/node": "20.17.24",
 		"openai-oauth-core": "workspace:*",
-		"typescript": "latest",
-		"vitest": "latest",
-		"zod": "^3.25.76"
+		"typescript": "5.9.3",
+		"vitest": "4.1.8",
+		"zod": "3.25.76"
 	},
 	"author": "EvanZhouDev",
 	"license": "AGPL-3.0-only",
