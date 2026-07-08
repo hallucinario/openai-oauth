@@ -16,6 +16,7 @@ const TRUSTED_CODEX_HOST = "chatgpt.com"
 const TRUSTED_CODEX_PATH = "/backend-api/codex"
 const DEFAULT_CODEX_INSTRUCTIONS = ""
 const REFRESH_EXPIRY_MARGIN_MS = 5 * 60 * 1000
+const REFRESH_INTERVAL_MS = 55 * 60 * 1000
 
 export type CodexOAuthSettings = Omit<AuthLoaderOptions, "fetch"> & {
 	baseURL?: string
@@ -39,6 +40,7 @@ type RequestParts = {
 
 class AuthManager {
 	private current?: EffectiveAuth
+	private currentLoadedAt?: number
 	private inflight?: Promise<EffectiveAuth>
 	private readonly settings: CodexOAuthSettings
 	private readonly fetch: FetchFunction
@@ -65,6 +67,7 @@ class AuthManager {
 		})
 			.then((auth) => {
 				this.current = auth
+				this.currentLoadedAt = (this.settings.now?.() ?? new Date()).getTime()
 				this.inflight = undefined
 				return auth
 			})
@@ -77,11 +80,14 @@ class AuthManager {
 	}
 
 	private needsRefresh(auth: EffectiveAuth): boolean {
+		const now = (this.settings.now?.() ?? new Date()).getTime()
 		const claims = parseJwtClaims(auth.accessToken)
 		const exp = claims && typeof claims.exp === "number" ? claims.exp : undefined
 		if (typeof exp === "number") {
-			const now = this.settings.now?.() ?? new Date()
-			return exp * 1000 <= now.getTime() + REFRESH_EXPIRY_MARGIN_MS
+			return exp * 1000 <= now + REFRESH_EXPIRY_MARGIN_MS
+		}
+		if (this.currentLoadedAt != null) {
+			return now - this.currentLoadedAt >= REFRESH_INTERVAL_MS
 		}
 		return false
 	}

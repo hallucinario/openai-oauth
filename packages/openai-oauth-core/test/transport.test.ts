@@ -353,6 +353,150 @@ describe("createCodexOAuthFetch", () => {
 			})
 		}
 	})
+
+	test("refreshes cached token when JWT exp is within margin", async () => {
+		const root = await fs.mkdtemp(
+			path.join(os.tmpdir(), "codex-oauth-refresh-cache-"),
+		)
+		const authFilePath = path.join(root, "auth.json")
+		let currentTime = new Date("2025-01-01T00:00:00Z")
+		const farFutureExp = Math.floor(currentTime.getTime() / 1000) + 7200
+
+		const makeJwt = (exp: number) =>
+			[
+				Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString(
+					"base64url",
+				),
+				Buffer.from(JSON.stringify({ exp })).toString("base64url"),
+				"signature",
+			].join(".")
+
+		const tokenEndpointCalls: string[] = []
+		const fetch = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input)
+			if (url.includes("/oauth/token")) {
+				tokenEndpointCalls.push(url)
+				return new Response(
+					JSON.stringify({
+						access_token: makeJwt(farFutureExp + 7200),
+						refresh_token: "new-refresh",
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				)
+			}
+			return new Response(null, { status: 200 })
+		})
+
+		try {
+			await fs.writeFile(
+				authFilePath,
+				JSON.stringify({
+					tokens: {
+						access_token: makeJwt(farFutureExp),
+						refresh_token: "refresh-token",
+						account_id: "acct-1",
+					},
+					last_refresh: currentTime.toISOString(),
+				}),
+				"utf-8",
+			)
+
+			const oauthFetch = createCodexOAuthFetch({
+				authFilePath,
+				fetch,
+				now: () => currentTime,
+				ensureFresh: true,
+			})
+
+			await oauthFetch("responses", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ model: "gpt-5.2", input: [] }),
+			})
+
+			expect(tokenEndpointCalls).toHaveLength(0)
+
+			currentTime = new Date(farFutureExp * 1000 - 60_000)
+
+			await oauthFetch("responses", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ model: "gpt-5.2", input: [] }),
+			})
+
+			expect(tokenEndpointCalls.length).toBeGreaterThanOrEqual(1)
+		} finally {
+			await fs.rm(root, { recursive: true, force: true })
+		}
+	})
+
+	test("refreshes cached opaque token after REFRESH_INTERVAL_MS", async () => {
+		const root = await fs.mkdtemp(
+			path.join(os.tmpdir(), "codex-oauth-opaque-refresh-"),
+		)
+		const authFilePath = path.join(root, "auth.json")
+		let currentTime = new Date("2025-01-01T00:00:00Z")
+
+		const tokenEndpointCalls: string[] = []
+		const fetch = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input)
+			if (url.includes("/oauth/token")) {
+				tokenEndpointCalls.push(url)
+				return new Response(
+					JSON.stringify({
+						access_token: "refreshed-opaque-key",
+						refresh_token: "new-refresh",
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				)
+			}
+			return new Response(null, { status: 200 })
+		})
+
+		try {
+			await fs.writeFile(
+				authFilePath,
+				JSON.stringify({
+					tokens: {
+						access_token: "opaque-api-key-no-jwt",
+						refresh_token: "refresh-token",
+						account_id: "acct-1",
+					},
+					last_refresh: currentTime.toISOString(),
+				}),
+				"utf-8",
+			)
+
+			const oauthFetch = createCodexOAuthFetch({
+				authFilePath,
+				fetch,
+				now: () => currentTime,
+				ensureFresh: true,
+			})
+
+			await oauthFetch("responses", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ model: "gpt-5.2", input: [] }),
+			})
+
+			expect(tokenEndpointCalls).toHaveLength(0)
+
+			currentTime = new Date(
+				currentTime.getTime() + 56 * 60 * 1000,
+			)
+
+			await oauthFetch("responses", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ model: "gpt-5.2", input: [] }),
+			})
+
+			expect(tokenEndpointCalls.length).toBeGreaterThanOrEqual(1)
+		} finally {
+			await fs.rm(root, { recursive: true, force: true })
+		}
+	})
 })
 
 describe("collectCompletedResponseFromSse", () => {
