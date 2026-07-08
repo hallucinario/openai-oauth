@@ -6,6 +6,7 @@ import {
 	type AuthLoaderOptions,
 	type EffectiveAuth,
 	loadAuthTokens,
+	parseJwtClaims,
 } from "./auth.js"
 import { collectCompletedResponseFromSse } from "./sse.js"
 import { CodexResponsesState } from "./state.js"
@@ -14,6 +15,7 @@ export const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 const TRUSTED_CODEX_HOST = "chatgpt.com"
 const TRUSTED_CODEX_PATH = "/backend-api/codex"
 const DEFAULT_CODEX_INSTRUCTIONS = ""
+const REFRESH_EXPIRY_MARGIN_MS = 5 * 60 * 1000
 
 export type CodexOAuthSettings = Omit<AuthLoaderOptions, "fetch"> & {
 	baseURL?: string
@@ -74,7 +76,20 @@ class AuthManager {
 		return this.inflight
 	}
 
+	private needsRefresh(auth: EffectiveAuth): boolean {
+		const claims = parseJwtClaims(auth.accessToken)
+		const exp = claims && typeof claims.exp === "number" ? claims.exp : undefined
+		if (typeof exp === "number") {
+			const now = this.settings.now?.() ?? new Date()
+			return exp * 1000 <= now.getTime() + REFRESH_EXPIRY_MARGIN_MS
+		}
+		return false
+	}
+
 	async headers(): Promise<Record<string, string>> {
+		if (this.current && this.needsRefresh(this.current)) {
+			this.current = undefined
+		}
 		const auth = this.current ?? (await this.ensure())
 		return {
 			Authorization: `Bearer ${auth.accessToken}`,
