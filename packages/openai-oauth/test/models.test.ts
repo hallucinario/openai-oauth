@@ -4,6 +4,7 @@ import {
 	resolveCodexClientVersion,
 	resolveOpenAIOAuthModels,
 } from "../src/models.js"
+import { defaultOpenAIOAuthModels } from "../src/types.js"
 
 describe("model discovery", () => {
 	test("prefers the local codex cli version", async () => {
@@ -82,6 +83,10 @@ describe("model discovery", () => {
 		expect(warnings).toEqual([
 			"Could not determine the Codex API version automatically. Falling back to 0.111.0. Pass a version explicitly with --codex-version if you need to override it.",
 		])
+	})
+
+	test("defaultOpenAIOAuthModels includes gpt-5.6-luna", () => {
+		expect(defaultOpenAIOAuthModels).toContain("gpt-5.6-luna")
 	})
 
 	test("returns configured models without upstream discovery", async () => {

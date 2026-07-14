@@ -141,6 +141,42 @@ describe("streamChatCompletions", () => {
 		expect(args).toBe('{"file_path":"/etc/hosts"}')
 	})
 
+	test("passes reasoning_effort max through to provider options", async () => {
+		mockedStreamText.mockReturnValue(
+			fakeFullStream([
+				{ type: "text-delta", text: "ok" },
+				{
+					type: "finish",
+					finishReason: "stop",
+					totalUsage: { promptTokens: 5, completionTokens: 2 },
+				},
+			]) as any,
+		)
+
+		const request: ChatRequest = {
+			model: "gpt-5.6-luna",
+			messages: [{ role: "user", content: "hello" }],
+			reasoning_effort: "max",
+		}
+
+		const response = await streamChatCompletions(
+			request,
+			dummyProvider,
+			dummyLogContext,
+		)
+
+		expect(response.status).toBe(200)
+		expect(mockedStreamText).toHaveBeenCalledWith(
+			expect.objectContaining({
+				providerOptions: expect.objectContaining({
+					openai: expect.objectContaining({
+						reasoningEffort: "max",
+					}),
+				}),
+			}),
+		)
+	})
+
 	test("emits tool call arguments from tool-call event when model skips deltas", async () => {
 		// Simulates gpt-5.3-codex-spark behavior: no tool-input-delta events
 		mockedStreamText.mockReturnValue(
