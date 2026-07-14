@@ -65,7 +65,7 @@ export type ChatRequest = {
 	stop?: string | string[]
 	max_tokens?: number
 	parallel_tool_calls?: boolean
-	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high"
+	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
 }
 
 export type ChatRequestSummary = {
@@ -111,6 +111,7 @@ export type OpenAIOAuthServerLogEvent =
 	  }
 
 export const defaultOpenAIOAuthModels: readonly string[] = [
+	"gpt-5.6-luna",
 	"gpt-5.4",
 	"gpt-5.3-codex",
 	"gpt-5.3-codex-spark",
