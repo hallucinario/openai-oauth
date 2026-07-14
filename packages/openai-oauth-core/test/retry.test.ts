@@ -128,6 +128,38 @@ describe("withRetry", () => {
 		await expect(retryPromise).rejects.toThrow("cancelled mid-sleep")
 	})
 
+	it("does not retry when fn() throws", async () => {
+		const fn = vi.fn().mockRejectedValue(new Error("network error"))
+		await expect(
+			withRetry(fn, { maxRetries: 3, sleep: noopSleep }),
+		).rejects.toThrow("network error")
+		expect(fn).toHaveBeenCalledTimes(1)
+	})
+
+	it("falls back to jitter when Retry-After date is in the past", async () => {
+		vi.spyOn(Math, "random").mockReturnValue(0.5)
+		const fixedNow = new Date("2026-07-10T12:00:00Z").getTime()
+		const pastDate = new Date("2026-07-10T11:00:00Z").toUTCString()
+		let calls = 0
+		const fn = vi.fn(() => {
+			calls++
+			return calls === 1
+				? tooManyRequests({ "Retry-After": pastDate })
+				: ok()
+		})
+		const sleepSpy = vi.fn(() => Promise.resolve())
+		await withRetry(fn, {
+			maxRetries: 3,
+			baseDelayMs: 1000,
+			maxDelayMs: 30000,
+			sleep: sleepSpy,
+			now: () => fixedNow,
+		})
+		expect(sleepSpy).toHaveBeenCalledTimes(1)
+		expect(sleepSpy.mock.calls[0]![0]).toBe(500)
+		vi.restoreAllMocks()
+	})
+
 	it("returns 429 immediately when maxRetries is 0", async () => {
 		const fn = vi.fn(() => tooManyRequests())
 		const response = await withRetry(fn, { maxRetries: 0, sleep: noopSleep })

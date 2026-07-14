@@ -10,6 +10,14 @@ export class ConcurrencyLimiter {
 	private readonly max: number
 
 	constructor(maxConcurrentRequests: number) {
+		if (
+			!Number.isInteger(maxConcurrentRequests) ||
+			maxConcurrentRequests < 1
+		) {
+			throw new RangeError(
+				`maxConcurrentRequests must be a positive integer, got ${maxConcurrentRequests}`,
+			)
+		}
 		this.max = maxConcurrentRequests
 	}
 

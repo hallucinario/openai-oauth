@@ -10,6 +10,12 @@ const defer = () => {
 }
 
 describe("ConcurrencyLimiter", () => {
+	it("throws on non-positive maxConcurrentRequests", () => {
+		expect(() => new ConcurrencyLimiter(0)).toThrow(RangeError)
+		expect(() => new ConcurrencyLimiter(-1)).toThrow(RangeError)
+		expect(() => new ConcurrencyLimiter(1.5)).toThrow(RangeError)
+	})
+
 	it("allows up to maxConcurrentRequests and queues the rest", async () => {
 		const limiter = new ConcurrencyLimiter(2)
 		const running: number[] = []
