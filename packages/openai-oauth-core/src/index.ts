@@ -1,4 +1,6 @@
 export type { AuthLoaderOptions, EffectiveAuth } from "./auth.js"
+export { ConcurrencyLimiter } from "./concurrency.js"
+export { withRetry, type RetrySettings } from "./retry.js"
 export {
 	deriveAccountId,
 	loadAuthTokens,

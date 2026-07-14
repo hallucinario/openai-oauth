@@ -8,6 +8,8 @@ import {
 	loadAuthTokens,
 	parseJwtClaims,
 } from "./auth.js"
+import { ConcurrencyLimiter } from "./concurrency.js"
+import { withRetry } from "./retry.js"
 import { collectCompletedResponseFromSse } from "./sse.js"
 import { CodexResponsesState } from "./state.js"
 
@@ -28,6 +30,10 @@ export type CodexOAuthSettings = Omit<AuthLoaderOptions, "fetch"> & {
 	instructions?: string
 	store?: boolean
 	responsesState?: CodexResponsesState | false
+	maxRetries?: number
+	retryBaseDelayMs?: number
+	retryMaxDelayMs?: number
+	maxConcurrentRequests?: number
 }
 
 type RequestParts = {
@@ -366,6 +372,7 @@ export const createCodexOAuthFetch = (
 		settings.responsesState === false
 			? undefined
 			: (settings.responsesState ?? new CodexResponsesState())
+	const limiter = new ConcurrencyLimiter(settings.maxConcurrentRequests ?? 5)
 	const codexFetch: FetchFunction = async (
 		input: Parameters<FetchFunction>[0],
 		init: Parameters<FetchFunction>[1],
@@ -395,12 +402,26 @@ export const createCodexOAuthFetch = (
 			responsesState,
 		)
 
-		const response = await fetch(target.toString(), {
-			method: request.method ?? init?.method,
-			headers,
-			body: preparedBody.body,
-			signal: request.signal ?? undefined,
-		})
+		const requestSignal = request.signal ?? undefined
+		const response = await limiter.run(
+			() =>
+				withRetry(
+					() =>
+						fetch(target.toString(), {
+							method: request.method ?? init?.method,
+							headers,
+							body: preparedBody.body,
+							signal: requestSignal,
+						}),
+					{
+						maxRetries: settings.maxRetries,
+						baseDelayMs: settings.retryBaseDelayMs,
+						maxDelayMs: settings.retryMaxDelayMs,
+					},
+					requestSignal,
+				),
+			requestSignal,
+		)
 
 		return captureResponsesState(
 			response,

@@ -28,6 +28,10 @@ export type CliArgs = {
 	allowUnsafeBaseURL?: boolean
 	allowUnsafeTokenUrl?: boolean
 	disableUpdateCheck?: boolean
+	maxConcurrentRequests?: number
+	maxRetries?: number
+	retryBaseDelay?: number
+	retryMaxDelay?: number
 }
 
 const parseModels = (value: string | undefined): string[] | undefined => {
@@ -83,6 +87,11 @@ const helpLines = [
 	"  --oauth-client-id <id>         Override the OAuth client id used for refresh.",
 	"  --oauth-token-url <url>        Override the OAuth token URL used for refresh. Requires --allow-unsafe-oauth-token-url unless it is auth.openai.com.",
 	"  --oauth-file <path>            Path to the local auth.json file.",
+	"",
+	"  --max-concurrent-requests <n>  Maximum concurrent upstream requests. Default: 5",
+	"  --max-retries <n>              Maximum retry attempts on 429 responses. Default: 3",
+	"  --retry-base-delay <ms>        Base delay in ms for retry backoff. Default: 1000",
+	"  --retry-max-delay <ms>         Maximum delay in ms for retry backoff. Default: 30000",
 	"",
 	"Unsafe flags",
 	"  --no-local-auth                Disable the local bearer-token check.",
@@ -173,6 +182,22 @@ const createCliParser = (argv: string[]) =>
 			type: "boolean",
 			describe: "Allow custom OAuth token URL. Unsafe.",
 		})
+		.option("max-concurrent-requests", {
+			type: "number",
+			describe: "Maximum concurrent upstream requests. Default: 5.",
+		})
+		.option("max-retries", {
+			type: "number",
+			describe: "Maximum retry attempts on 429 responses. Default: 3.",
+		})
+		.option("retry-base-delay", {
+			type: "number",
+			describe: "Base delay in ms for retry backoff. Default: 1000.",
+		})
+		.option("retry-max-delay", {
+			type: "number",
+			describe: "Maximum delay in ms for retry backoff. Default: 30000.",
+		})
 		.option("update-check", {
 			type: "boolean",
 			describe: "Enable npm registry update checks.",
@@ -207,6 +232,10 @@ export const parseCliArgs = (argv: string[]): CliArgs => {
 		allowUnsafeBaseURL: parsed.allowUnsafeBaseUrl,
 		allowUnsafeTokenUrl: parsed.allowUnsafeOauthTokenUrl,
 		disableUpdateCheck: parsed.updateCheck === false,
+		maxConcurrentRequests: parsed.maxConcurrentRequests,
+		maxRetries: parsed.maxRetries,
+		retryBaseDelay: parsed.retryBaseDelay,
+		retryMaxDelay: parsed.retryMaxDelay,
 	}
 }
 
@@ -225,6 +254,10 @@ export const toServerOptions = (args: CliArgs) => ({
 	allowUnsafeRemoteBind: args.allowUnsafeRemoteBind,
 	allowUnsafeBaseURL: args.allowUnsafeBaseURL,
 	allowUnsafeTokenUrl: args.allowUnsafeTokenUrl,
+	maxConcurrentRequests: args.maxConcurrentRequests,
+	maxRetries: args.maxRetries,
+	retryBaseDelayMs: args.retryBaseDelay,
+	retryMaxDelayMs: args.retryMaxDelay,
 })
 
 const findExistingAuthFile = async (

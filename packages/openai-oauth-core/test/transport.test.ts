@@ -499,6 +499,80 @@ describe("createCodexOAuthFetch", () => {
 	})
 })
 
+describe("retry and concurrency in createCodexOAuthFetch", () => {
+	test("retries on 429 and returns success", async () => {
+		const authFilePath = await createAuthFile()
+		let callCount = 0
+		const fetch = vi.fn(async () => {
+			callCount++
+			if (callCount <= 2) {
+				return new Response("rate limited", { status: 429 })
+			}
+			return new Response(null, { status: 200 })
+		})
+
+		const oauthFetch = createCodexOAuthFetch({
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+			responsesState: false,
+			maxRetries: 3,
+			retryBaseDelayMs: 0,
+			retryMaxDelayMs: 1,
+		})
+
+		const response = await oauthFetch("responses", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ model: "gpt-5.2" }),
+		})
+
+		expect(response.status).toBe(200)
+		expect(fetch).toHaveBeenCalledTimes(3)
+
+		await fs.rm(path.dirname(authFilePath), {
+			recursive: true,
+			force: true,
+		})
+	})
+
+	test("concurrency limiter gates parallel requests", async () => {
+		const authFilePath = await createAuthFile()
+		let maxConcurrent = 0
+		let current = 0
+		const fetch = vi.fn(async () => {
+			current++
+			maxConcurrent = Math.max(maxConcurrent, current)
+			await new Promise((r) => setTimeout(r, 30))
+			current--
+			return new Response(null, { status: 200 })
+		})
+
+		const oauthFetch = createCodexOAuthFetch({
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+			responsesState: false,
+			maxConcurrentRequests: 1,
+		})
+
+		const makeRequest = () =>
+			oauthFetch("responses", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ model: "gpt-5.2" }),
+			})
+
+		await Promise.all([makeRequest(), makeRequest()])
+		expect(maxConcurrent).toBe(1)
+
+		await fs.rm(path.dirname(authFilePath), {
+			recursive: true,
+			force: true,
+		})
+	})
+})
+
 describe("collectCompletedResponseFromSse", () => {
 	test("returns the completed response object", async () => {
 		const stream = new ReadableStream<Uint8Array>({
