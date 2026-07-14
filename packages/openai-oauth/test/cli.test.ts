@@ -88,6 +88,33 @@ describe("openai oauth cli", () => {
 		)
 	})
 
+	test("parses retry and concurrency flags", () => {
+		const parsed = parseCliArgs([
+			"--max-concurrent-requests",
+			"10",
+			"--max-retries",
+			"5",
+			"--retry-base-delay",
+			"2000",
+			"--retry-max-delay",
+			"60000",
+		])
+
+		const opts = toServerOptions(parsed)
+		expect(opts.maxConcurrentRequests).toBe(10)
+		expect(opts.maxRetries).toBe(5)
+		expect(opts.retryBaseDelayMs).toBe(2000)
+		expect(opts.retryMaxDelayMs).toBe(60000)
+	})
+
+	test("retry and concurrency flags default to undefined", () => {
+		const opts = toServerOptions(parseCliArgs([]))
+		expect(opts.maxConcurrentRequests).toBeUndefined()
+		expect(opts.maxRetries).toBeUndefined()
+		expect(opts.retryBaseDelayMs).toBeUndefined()
+		expect(opts.retryMaxDelayMs).toBeUndefined()
+	})
+
 	test("does not use hidden environment variable overrides", () => {
 		vi.stubEnv("HOST", "0.0.0.0")
 		vi.stubEnv("PORT", "3333")
