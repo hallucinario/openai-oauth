@@ -85,6 +85,15 @@ What currently works:
 
 ## Subscription Measurement Mode
 
+Run a separate measurement lane from a built checkout:
+
+```bash
+pnpm --filter openai-oauth exec node dist/cli.js --host 127.0.0.1 --port 10532 --measurement-mode --models gpt-5.6-sol,gpt-5.6-luna --no-update-check
+curl -i http://127.0.0.1:10532/health
+```
+
+General mode and the default port `10531` remain unchanged.
+
 `--measurement-mode` enables a strict local measurement lane. It accepts only
 `gpt-5.6-sol` and `gpt-5.6-luna` at the default
 `https://chatgpt.com/backend-api/codex` upstream. The mode rejects a configured
@@ -119,6 +128,38 @@ disable and verify its own retries and fallback routes.
 Callers using `createOpenAIOAuth({ measurementMode: true })` directly must also
 set `maxRetries: 0` on their own AI SDK calls; the server sets this automatically
 for its non-streaming Chat Completions route.
+
+Every measurement-mode handler instance generates one server-owned UUID.
+Measured `GET /health` returns it as top-level `instance_id` and as the
+`x-oauth-instance-id` response header. All measurement handler responses,
+including successful receipts and upstream 429 responses on both endpoints,
+carry that same header, overriding client or upstream values. The UUID stays
+stable across requests and changes for a new server or restart. Reacquire
+health after restarting and require health `instance_id`, the health header,
+and each receipt header to match before accepting measurements. Model IDs are
+the actual `gpt-5.6-sol` and `gpt-5.6-luna`; LiteLLM handles any alias translation.
+
+The fake-upstream HTTP smoke exercises the real local HTTP server, transport,
+and SDK using synthetic auth and injected upstream responses, with no provider
+requests or real credentials:
+
+```bash
+LIVE_CODEX_E2E=0 pnpm --filter openai-oauth exec vitest run test/measurement-http.test.ts
+```
+
+Run the CI checks locally with:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build
+pnpm typecheck
+LIVE_CODEX_E2E=0 pnpm test
+pnpm format-and-lint
+LIVE_CODEX_E2E=0 pnpm --filter openai-oauth exec vitest run test/measurement-http.test.ts
+```
+
+CI runs on pull requests and pushes to `main`, verifies and prints the exact
+checked-out PR head or push SHA, and keeps live provider tests disabled.
 
 ## Known Limitations
 
