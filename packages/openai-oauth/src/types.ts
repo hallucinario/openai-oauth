@@ -65,7 +65,14 @@ export type ChatRequest = {
 	stop?: string | string[]
 	max_tokens?: number
 	parallel_tool_calls?: boolean
-	reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+	reasoning_effort?:
+		| "none"
+		| "minimal"
+		| "low"
+		| "medium"
+		| "high"
+		| "xhigh"
+		| "max"
 }
 
 export type ChatRequestSummary = {
@@ -101,6 +108,9 @@ export type OpenAIOAuthServerLogEvent =
 			status: number
 			stream: boolean
 			usage: UsageLike
+			upstreamRequestId?: string
+			responseId?: string
+			responseModel?: string
 	  }
 	| {
 			type: "chat_error"
@@ -164,6 +174,7 @@ export type ChatCompletionResultShape = {
 		input: unknown
 	}>
 	usage: UsageLike
+	response?: { headers?: Record<string, string> }
 }
 
 export type { UsageLike }

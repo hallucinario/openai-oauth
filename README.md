@@ -63,6 +63,7 @@ The CLI and the provider share the same core OAuth transport settings.
 | CORS allowlist      | `--allow-origin`    | N/A            | No browser origins allowed                                                                                                                              | Repeatable exact browser Origin allowlist. `--allow-any-origin` restores wildcard CORS and is unsafe.                              |
 | Request body limit  | `--max-body-bytes`  | N/A            | `10485760`                                                                                                                                              | Maximum HTTP request body accepted by the Node server.                                                                             |
 | Unsafe URL overrides | `--allow-unsafe-base-url`, `--allow-unsafe-oauth-token-url` | `allowUnsafeBaseURL`, `allowUnsafeTokenUrl` | `false` | Required before access or refresh tokens are sent to non-default hosts. |
+| Subscription measurement | `--measurement-mode` | `measurementMode` | `false` | Enables a fixed-model, single-attempt lane with response evidence validation. |
 | Remote bind         | `--allow-unsafe-remote-bind` | N/A | `false` | Required before binding to non-loopback interfaces such as `0.0.0.0`. |
 | Update check        | `--no-update-check` / `OPENAI_OAUTH_NO_UPDATE_CHECK=1` | N/A | Enabled | Disables the npm registry latest-version check. |
 
@@ -81,6 +82,43 @@ What currently works:
 - Streaming Responses
 - Toolcalls
 - Reasoning Traces
+
+## Subscription Measurement Mode
+
+`--measurement-mode` enables a strict local measurement lane. It accepts only
+`gpt-5.6-sol` and `gpt-5.6-luna` at the default
+`https://chatgpt.com/backend-api/codex` upstream. The mode rejects a configured
+retry count above zero, disables the transport's 429 retries and the AI SDK's
+retries for non-streaming `/v1/chat/completions`, and sends
+`max_output_tokens: 4096` to Codex. The 4096 value is a **request**, not proof
+that the upstream enforced a cap. A supplied `max_tokens` or
+`max_output_tokens` must equal 4096; an omitted value is set to 4096.
+
+The measured Chat Completions endpoint requires `stream: false`. Direct
+`/v1/responses` requests may ask for a stream, but the proxy buffers the
+upstream SSE response first to validate the completed event. The measurement
+lane requires the upstream `x-request-id`, completed response ID and model, and
+input, output and total token usage. It returns HTTP 502 when evidence is
+missing, the observed model differs from the request, or observed output exceeds
+4096 tokens. An upstream 429 is returned after one request. Missing usage is
+never reported as zero in this lane.
+
+`GET /health` attests the configured mode with
+`x-oauth-measurement-contract: subscription-single-attempt-v1` and a
+`measurement` object containing the contract, models, upstream URL, output
+request, retry count and Chat Completions stream setting. Successful measured
+responses carry that contract header plus `x-oauth-upstream-base-url`,
+`x-oauth-upstream-request-count`, `x-oauth-upstream-request-id`,
+`x-oauth-response-id`, `x-oauth-response-model`, `x-oauth-input-tokens`,
+`x-oauth-output-tokens`, and `x-oauth-total-tokens`. Cached input and reasoning
+output tokens appear as `x-oauth-cached-input-tokens` and
+`x-oauth-reasoning-output-tokens` when provided upstream. The non-streaming Chat
+Completions JSON uses the observed response ID, model and usage. The request
+count attests OAuth-to-Codex calls only; a calling LiteLLM proxy must separately
+disable and verify its own retries and fallback routes.
+Callers using `createOpenAIOAuth({ measurementMode: true })` directly must also
+set `maxRetries: 0` on their own AI SDK calls; the server sets this automatically
+for its non-streaming Chat Completions route.
 
 ## Known Limitations
 

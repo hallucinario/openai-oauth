@@ -32,6 +32,7 @@ export type CliArgs = {
 	maxRetries?: number
 	retryBaseDelay?: number
 	retryMaxDelay?: number
+	measurementMode?: boolean
 }
 
 const parseModels = (value: string | undefined): string[] | undefined => {
@@ -58,9 +59,7 @@ const parseAllowedOrigins = (value: unknown): string[] | undefined => {
 
 	if (Array.isArray(value)) {
 		const entries = value
-			.flatMap((entry) =>
-				typeof entry === "string" ? entry.split(",") : [],
-			)
+			.flatMap((entry) => (typeof entry === "string" ? entry.split(",") : []))
 			.map((entry) => entry.trim())
 			.filter((entry) => entry.length > 0)
 		return entries.length > 0 ? entries : undefined
@@ -92,6 +91,7 @@ const helpLines = [
 	"  --max-retries <n>              Maximum retry attempts on 429 responses. Default: 3",
 	"  --retry-base-delay <ms>        Base delay in ms for retry backoff. Default: 1000",
 	"  --retry-max-delay <ms>         Maximum delay in ms for retry backoff. Default: 30000",
+	"  --measurement-mode             Fixed-model, single-attempt subscription measurement lane.",
 	"",
 	"Unsafe flags",
 	"  --no-local-auth                Disable the local bearer-token check.",
@@ -198,6 +198,10 @@ const createCliParser = (argv: string[]) =>
 			type: "number",
 			describe: "Maximum delay in ms for retry backoff. Default: 30000.",
 		})
+		.option("measurement-mode", {
+			type: "boolean",
+			describe: "Enable strict subscription measurement lane.",
+		})
 		.option("update-check", {
 			type: "boolean",
 			describe: "Enable npm registry update checks.",
@@ -236,6 +240,7 @@ export const parseCliArgs = (argv: string[]): CliArgs => {
 		maxRetries: parsed.maxRetries,
 		retryBaseDelay: parsed.retryBaseDelay,
 		retryMaxDelay: parsed.retryMaxDelay,
+		measurementMode: parsed.measurementMode,
 	}
 }
 
@@ -258,6 +263,7 @@ export const toServerOptions = (args: CliArgs) => ({
 	maxRetries: args.maxRetries,
 	retryBaseDelayMs: args.retryBaseDelay,
 	retryMaxDelayMs: args.retryMaxDelay,
+	measurementMode: args.measurementMode,
 })
 
 const findExistingAuthFile = async (
