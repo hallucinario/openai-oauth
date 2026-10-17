@@ -5,7 +5,7 @@ import type {
 	IncomingMessage,
 	ServerResponse,
 } from "node:http"
-import { isIP, type AddressInfo } from "node:net"
+import { type AddressInfo, isIP } from "node:net"
 import type { ChatRequest, JsonValue, UsageLike } from "./types.js"
 
 export const DEFAULT_HOST = "127.0.0.1"
@@ -212,7 +212,10 @@ export const requireLocalAuthorization = (
 	const bearer = authorization.match(/^Bearer\s+(.+)$/i)?.[1]
 	const apiKey = request.headers.get("x-api-key")
 	const candidate = bearer ?? apiKey
-	if (typeof candidate === "string" && constantTimeEquals(candidate, localToken)) {
+	if (
+		typeof candidate === "string" &&
+		constantTimeEquals(candidate, localToken)
+	) {
 		return undefined
 	}
 

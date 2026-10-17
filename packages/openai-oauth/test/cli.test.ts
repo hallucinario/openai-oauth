@@ -115,6 +115,11 @@ describe("openai oauth cli", () => {
 		expect(opts.retryMaxDelayMs).toBeUndefined()
 	})
 
+	test("exposes an explicit subscription measurement mode", () => {
+		const opts = toServerOptions(parseCliArgs(["--measurement-mode"]))
+		expect(opts.measurementMode).toBe(true)
+	})
+
 	test("does not use hidden environment variable overrides", () => {
 		vi.stubEnv("HOST", "0.0.0.0")
 		vi.stubEnv("PORT", "3333")

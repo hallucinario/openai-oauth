@@ -72,7 +72,10 @@ export const toStartupMessage = (
 		typeof options?.localToken === "string"
 			? [
 					dim("Use this as your OpenAI base URL.", options),
-					dim(`Use this as your OpenAI API key: ${options.localToken}`, options),
+					dim(
+						`Use this as your OpenAI API key: ${options.localToken}`,
+						options,
+					),
 				]
 			: [
 					dim(

@@ -3,6 +3,7 @@ import {
 	collectCompletedResponseFromSse,
 	normalizeCodexResponsesBody,
 } from "../../openai-oauth-core/src/index.js"
+import { prepareMeasurementBody } from "../../openai-oauth-core/src/measurement.js"
 import {
 	copyUpstreamResponse,
 	isRecord,
@@ -38,6 +39,19 @@ export const handleResponsesRequest = async (
 			headers,
 		)
 	}
+	let upstreamBody = body
+	if (settings.measurementMode) {
+		try {
+			upstreamBody = prepareMeasurementBody(body)
+		} catch (error) {
+			return toErrorResponse(
+				error instanceof Error ? error.message : "Invalid measurement request.",
+				400,
+				"invalid_request_error",
+				headers,
+			)
+		}
+	}
 
 	const wantsStream = body.stream === true
 	const upstream = await client.request("/responses", {
@@ -46,10 +60,11 @@ export const handleResponsesRequest = async (
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify(
-			normalizeCodexResponsesBody(body, {
+			normalizeCodexResponsesBody(upstreamBody, {
 				forceStream: true,
 				instructions: settings.instructions,
 				store: settings.store,
+				preserveMaxOutputTokens: settings.measurementMode,
 			}),
 		),
 	})
@@ -57,16 +72,35 @@ export const handleResponsesRequest = async (
 	if (!upstream.ok) {
 		return copyUpstreamResponse(upstream, headers)
 	}
+	const responseHeaders = mergeHeaders(headers)
+	if (settings.measurementMode) {
+		for (const key of [
+			"x-oauth-measurement-contract",
+			"x-oauth-upstream-base-url",
+			"x-oauth-upstream-request-id",
+			"x-oauth-upstream-request-count",
+			"x-oauth-response-id",
+			"x-oauth-response-model",
+			"x-oauth-input-tokens",
+			"x-oauth-output-tokens",
+			"x-oauth-total-tokens",
+			"x-oauth-cached-input-tokens",
+			"x-oauth-reasoning-output-tokens",
+		]) {
+			const value = upstream.headers.get(key)
+			if (value) responseHeaders.set(key, value)
+		}
+	}
 
 	if (wantsStream) {
 		return new Response(upstream.body, {
 			status: upstream.status,
-			headers: mergeHeaders(sseHeaders, headers),
+			headers: mergeHeaders(sseHeaders, responseHeaders),
 		})
 	}
 
 	const completed = await collectCompletedResponseFromSse(
 		upstream.body ?? new ReadableStream(),
 	)
-	return toJsonResponse(completed, 200, headers)
+	return toJsonResponse(completed, 200, responseHeaders)
 }

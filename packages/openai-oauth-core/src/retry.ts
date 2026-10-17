@@ -19,7 +19,7 @@ const defaultSleep = (ms: number, signal?: AbortSignal | null): Promise<void> =>
 
 		const onAbort = () => {
 			clearTimeout(timer)
-			reject(signal!.reason)
+			reject(signal?.reason)
 		}
 
 		const timer = setTimeout(() => {

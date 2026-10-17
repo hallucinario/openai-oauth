@@ -59,6 +59,14 @@ describe("normalizeCodexResponsesBody", () => {
 		expect(normalized.store).toBe(true)
 	})
 
+	test("preserves a requested output limit for the measurement lane", () => {
+		const normalized = normalizeCodexResponsesBody(
+			{ model: "gpt-5.6-sol", max_output_tokens: 4096 },
+			{ preserveMaxOutputTokens: true },
+		)
+		expect(normalized.max_output_tokens).toBe(4096)
+	})
+
 	test("preserves explicit empty and whitespace instructions", () => {
 		expect(
 			normalizeCodexResponsesBody(
@@ -94,6 +102,219 @@ describe("normalizeCodexResponsesBody", () => {
 		)
 
 		expect(normalized.store).toBe(false)
+	})
+})
+
+const measurementSse = (response: Record<string, unknown>): string =>
+	[
+		"event: response.created",
+		`data: ${JSON.stringify({ response: { id: "resp_measured", model: response.model } })}`,
+		"",
+		"event: response.completed",
+		`data: ${JSON.stringify({ response: { id: "resp_measured", ...response } })}`,
+		"",
+	].join("\n")
+
+describe("subscription measurement transport", () => {
+	test("sends one fixed-model request with a 4096-token request and returns raw evidence", async () => {
+		const authFilePath = await createAuthFile()
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					measurementSse({
+						model: "gpt-5.6-sol",
+						usage: { input_tokens: 12, output_tokens: 23, total_tokens: 35 },
+					}),
+					{ status: 200, headers: { "x-request-id": "upstream-123" } },
+				),
+		)
+		const oauthFetch = createCodexOAuthFetch({
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+			measurementMode: true,
+		})
+		const response = await oauthFetch("responses", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ model: "gpt-5.6-sol" }),
+		})
+		expect(fetch).toHaveBeenCalledTimes(1)
+		expect(fetch.mock.calls[0]?.[0]).toBe(
+			"https://chatgpt.com/backend-api/codex/responses",
+		)
+		expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+			model: "gpt-5.6-sol",
+			max_output_tokens: 4096,
+		})
+		expect(response.status).toBe(200)
+		expect(response.headers.get("x-oauth-upstream-request-id")).toBe(
+			"upstream-123",
+		)
+		expect(response.headers.get("x-oauth-response-id")).toBe("resp_measured")
+		expect(response.headers.get("x-oauth-response-model")).toBe("gpt-5.6-sol")
+		expect(response.headers.get("x-oauth-input-tokens")).toBe("12")
+		expect(response.headers.get("x-oauth-output-tokens")).toBe("23")
+		expect(response.headers.get("x-oauth-upstream-request-count")).toBe("1")
+		expect(await response.text()).toContain("response.completed")
+	})
+
+	test("does not retry a 429 in measurement mode", async () => {
+		const authFilePath = await createAuthFile()
+		const fetch = vi.fn(
+			async () => new Response("rate limited", { status: 429 }),
+		)
+		const oauthFetch = createCodexOAuthFetch({
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+			measurementMode: true,
+		})
+		const response = await oauthFetch("responses", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ model: "gpt-5.6-luna", max_output_tokens: 4096 }),
+		})
+		expect(response.status).toBe(429)
+		expect(fetch).toHaveBeenCalledTimes(1)
+	})
+
+	test.each([
+		["unapproved model", { model: "gpt-5.4" }],
+		[
+			"conflicting output limit",
+			{ model: "gpt-5.6-sol", max_output_tokens: 512 },
+		],
+	])("rejects %s before any upstream request", async (_case, body) => {
+		const authFilePath = await createAuthFile()
+		const fetch = vi.fn()
+		const oauthFetch = createCodexOAuthFetch({
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+			measurementMode: true,
+		})
+		await expect(
+			oauthFetch("responses", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			}),
+		).rejects.toThrow()
+		expect(fetch).not.toHaveBeenCalled()
+	})
+
+	test.each([
+		["missing usage", { model: "gpt-5.6-sol" }],
+		[
+			"wrong model",
+			{
+				model: "gpt-5.6-luna",
+				usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+			},
+		],
+		[
+			"output over 4096",
+			{
+				model: "gpt-5.6-sol",
+				usage: { input_tokens: 1, output_tokens: 4097, total_tokens: 4098 },
+			},
+		],
+	])("does not accept %s as measured success", async (_case, completed) => {
+		const authFilePath = await createAuthFile()
+		const fetch = vi.fn(
+			async () =>
+				new Response(measurementSse(completed), {
+					status: 200,
+					headers: { "x-request-id": "upstream-123" },
+				}),
+		)
+		const oauthFetch = createCodexOAuthFetch({
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+			measurementMode: true,
+		})
+		const response = await oauthFetch("responses", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ model: "gpt-5.6-sol", max_output_tokens: 4096 }),
+		})
+		expect(response.status).toBe(502)
+		expect(fetch).toHaveBeenCalledTimes(1)
+		expect(response.headers.get("x-oauth-upstream-request-count")).toBe("1")
+	})
+
+	test("requires an upstream request ID for accepted evidence", async () => {
+		const authFilePath = await createAuthFile()
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					measurementSse({
+						model: "gpt-5.6-sol",
+						usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+					}),
+					{ status: 200 },
+				),
+		)
+		const oauthFetch = createCodexOAuthFetch({
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+			measurementMode: true,
+		})
+		const response = await oauthFetch("responses", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ model: "gpt-5.6-sol" }),
+		})
+		expect(response.status).toBe(502)
+		expect(fetch).toHaveBeenCalledTimes(1)
+	})
+
+	test("rejects conflicting model identities within upstream SSE", async () => {
+		const authFilePath = await createAuthFile()
+		const sse = [
+			"event: response.created",
+			'data: {"response":{"id":"resp_measured","model":"gpt-5.6-luna"}}',
+			"",
+			"event: response.completed",
+			'data: {"response":{"id":"resp_measured","model":"gpt-5.6-sol","usage":{"input_tokens":1,"output_tokens":2,"total_tokens":3}}}',
+			"",
+		].join("\n")
+		const fetch = vi.fn(
+			async () =>
+				new Response(sse, {
+					status: 200,
+					headers: { "x-request-id": "upstream-123" },
+				}),
+		)
+		const oauthFetch = createCodexOAuthFetch({
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+			measurementMode: true,
+		})
+		const response = await oauthFetch("responses", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ model: "gpt-5.6-sol" }),
+		})
+		expect(response.status).toBe(502)
+		expect(fetch).toHaveBeenCalledTimes(1)
+	})
+
+	test("refuses custom upstream and retry configuration", () => {
+		expect(() =>
+			createCodexOAuthFetch({
+				measurementMode: true,
+				baseURL: "https://example.com/codex",
+				allowUnsafeBaseURL: true,
+			}),
+		).toThrow()
+		expect(() =>
+			createCodexOAuthFetch({ measurementMode: true, maxRetries: 1 }),
+		).toThrow()
 	})
 })
 
@@ -482,9 +703,7 @@ describe("createCodexOAuthFetch", () => {
 
 			expect(tokenEndpointCalls).toHaveLength(0)
 
-			currentTime = new Date(
-				currentTime.getTime() + 56 * 60 * 1000,
-			)
+			currentTime = new Date(currentTime.getTime() + 56 * 60 * 1000)
 
 			await oauthFetch("responses", {
 				method: "POST",

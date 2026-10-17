@@ -9,6 +9,10 @@ import {
 	parseJwtClaims,
 } from "./auth.js"
 import { ConcurrencyLimiter } from "./concurrency.js"
+import {
+	inspectMeasurementResponse,
+	prepareMeasurementBody,
+} from "./measurement.js"
 import { withRetry } from "./retry.js"
 import { collectCompletedResponseFromSse } from "./sse.js"
 import { CodexResponsesState } from "./state.js"
@@ -34,6 +38,8 @@ export type CodexOAuthSettings = Omit<AuthLoaderOptions, "fetch"> & {
 	retryBaseDelayMs?: number
 	retryMaxDelayMs?: number
 	maxConcurrentRequests?: number
+	/** Strict single-attempt, fixed-model lane for subscription measurements. */
+	measurementMode?: boolean
 }
 
 type RequestParts = {
@@ -88,7 +94,8 @@ class AuthManager {
 	private needsRefresh(auth: EffectiveAuth): boolean {
 		const now = (this.settings.now?.() ?? new Date()).getTime()
 		const claims = parseJwtClaims(auth.accessToken)
-		const exp = claims && typeof claims.exp === "number" ? claims.exp : undefined
+		const exp =
+			claims && typeof claims.exp === "number" ? claims.exp : undefined
 		if (typeof exp === "number") {
 			return exp * 1000 <= now + REFRESH_EXPIRY_MARGIN_MS
 		}
@@ -134,7 +141,8 @@ export const resolveCodexBaseURL = (
 	baseURL?: string,
 	allowUnsafeBaseURL?: boolean,
 ): string => {
-	const resolvedBaseURL = withoutTrailingSlash(baseURL) ?? DEFAULT_CODEX_BASE_URL
+	const resolvedBaseURL =
+		withoutTrailingSlash(baseURL) ?? DEFAULT_CODEX_BASE_URL
 	const parsed = new URL(resolvedBaseURL)
 	if (parsed.protocol !== "https:") {
 		throw new Error("Codex upstream base URL must use https.")
@@ -251,6 +259,7 @@ export type NormalizeCodexResponsesBodyOptions = {
 	instructions?: string
 	forceStream?: boolean
 	store?: boolean
+	preserveMaxOutputTokens?: boolean
 }
 
 export const normalizeCodexResponsesBody = (
@@ -273,7 +282,9 @@ export const normalizeCodexResponsesBody = (
 		normalized.stream = true
 	}
 
-	delete normalized.max_output_tokens
+	if (!options.preserveMaxOutputTokens) {
+		delete normalized.max_output_tokens
+	}
 
 	return normalized
 }
@@ -296,24 +307,39 @@ const prepareResponsesRequestBody = async (
 
 	const contentType = headers.get("content-type")
 	if (contentType && !contentType.includes("application/json")) {
+		if (settings.measurementMode) {
+			throw new Error("Measurement response request must use application/json.")
+		}
 		return { body }
 	}
 
 	const bodyText = await decodeBody(body)
 	if (typeof bodyText !== "string") {
+		if (settings.measurementMode) {
+			throw new Error("Measurement response request must have a JSON body.")
+		}
 		return { body }
 	}
 
 	try {
 		const parsed = JSON.parse(bodyText)
 		if (!isRecord(parsed)) {
+			if (settings.measurementMode) {
+				throw new Error(
+					"Measurement response request body must be a JSON object.",
+				)
+			}
 			return { body }
 		}
 
-		const normalized = normalizeCodexResponsesBody(parsed, {
-			instructions: settings.instructions,
-			store: settings.store,
-		})
+		const normalized = normalizeCodexResponsesBody(
+			settings.measurementMode ? prepareMeasurementBody(parsed) : parsed,
+			{
+				instructions: settings.instructions,
+				store: settings.store,
+				preserveMaxOutputTokens: settings.measurementMode,
+			},
+		)
 
 		if (state?.requiresCachedState(normalized)) {
 			await state.waitForPendingCaptures()
@@ -325,7 +351,8 @@ const prepareResponsesRequestBody = async (
 			body: JSON.stringify(expanded),
 			requestBody: expanded,
 		}
-	} catch {
+	} catch (error) {
+		if (settings.measurementMode) throw error
 		return { body }
 	}
 }
@@ -368,8 +395,20 @@ export const createCodexOAuthFetch = (
 		settings.baseURL,
 		settings.allowUnsafeBaseURL,
 	)
+	if (settings.measurementMode && baseURL !== DEFAULT_CODEX_BASE_URL) {
+		throw new Error(
+			"Measurement mode requires the default ChatGPT Codex upstream.",
+		)
+	}
+	if (
+		settings.measurementMode &&
+		settings.maxRetries !== undefined &&
+		settings.maxRetries !== 0
+	) {
+		throw new Error("Measurement mode requires maxRetries=0.")
+	}
 	const responsesState =
-		settings.responsesState === false
+		settings.responsesState === false || settings.measurementMode
 			? undefined
 			: (settings.responsesState ?? new CodexResponsesState())
 	const limiter = new ConcurrencyLimiter(settings.maxConcurrentRequests ?? 5)
@@ -414,7 +453,7 @@ export const createCodexOAuthFetch = (
 							signal: requestSignal,
 						}),
 					{
-						maxRetries: settings.maxRetries,
+						maxRetries: settings.measurementMode ? 0 : settings.maxRetries,
 						baseDelayMs: settings.retryBaseDelayMs,
 						maxDelayMs: settings.retryMaxDelayMs,
 					},
@@ -423,8 +462,15 @@ export const createCodexOAuthFetch = (
 			requestSignal,
 		)
 
+		const measuredResponse =
+			settings.measurementMode && target.pathname.endsWith("/responses")
+				? await inspectMeasurementResponse(
+						response,
+						String(preparedBody.requestBody?.model ?? ""),
+					)
+				: response
 		return captureResponsesState(
-			response,
+			measuredResponse,
 			preparedBody.requestBody,
 			responsesState,
 		)

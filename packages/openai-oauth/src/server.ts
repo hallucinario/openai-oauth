@@ -3,7 +3,13 @@ import type { AddressInfo } from "node:net"
 import {
 	type CodexOAuthSettings,
 	createCodexOAuthClient,
+	DEFAULT_CODEX_BASE_URL,
 } from "../../openai-oauth-core/src/index.js"
+import {
+	MEASUREMENT_CONTRACT,
+	MEASUREMENT_MAX_OUTPUT_TOKENS,
+	MEASUREMENT_MODELS,
+} from "../../openai-oauth-core/src/measurement.js"
 import {
 	createOpenAIOAuth,
 	type OpenAIOAuthProvider,
@@ -15,8 +21,8 @@ import { handleResponsesRequest } from "./responses.js"
 import {
 	DEFAULT_HOST,
 	DEFAULT_PORT,
-	RequestBodyTooLargeError,
 	isLoopbackHost,
+	RequestBodyTooLargeError,
 	requireLocalAuthorization,
 	resolveAddress,
 	resolveCorsHeaders,
@@ -66,9 +72,21 @@ const handleRoutes = async (
 			{
 				ok: true,
 				replay_state: "stateless",
+				...(settings.measurementMode && {
+					measurement: {
+						contract: MEASUREMENT_CONTRACT,
+						models: MEASUREMENT_MODELS,
+						upstream: DEFAULT_CODEX_BASE_URL,
+						max_output_tokens: MEASUREMENT_MAX_OUTPUT_TOKENS,
+						max_retries: 0,
+						chat_completions_stream: false,
+					},
+				}),
 			},
 			200,
-			cors,
+			settings.measurementMode
+				? { ...cors, "x-oauth-measurement-contract": MEASUREMENT_CONTRACT }
+				: cors,
 		)
 	}
 
@@ -115,6 +133,7 @@ const handleRoutes = async (
 			provider,
 			requestLogger,
 			cors,
+			settings.measurementMode,
 		)
 	}
 
@@ -124,6 +143,16 @@ const handleRoutes = async (
 export const createOpenAIOAuthFetchHandler = (
 	settings: OpenAIOAuthServerOptions = {},
 ): OpenAIOAuthFetchHandler => {
+	if (
+		settings.measurementMode &&
+		settings.models !== undefined &&
+		(settings.models.length !== MEASUREMENT_MODELS.length ||
+			MEASUREMENT_MODELS.some((model) => !settings.models?.includes(model)))
+	) {
+		throw new Error(
+			"Measurement mode requires exactly gpt-5.6-sol and gpt-5.6-luna models.",
+		)
+	}
 	const localToken = resolveLocalToken(settings.localToken)
 	const effectiveSettings: OpenAIOAuthServerOptions = {
 		...settings,
@@ -136,9 +165,11 @@ export const createOpenAIOAuthFetchHandler = (
 	}
 	const client = createCodexOAuthClient(sharedSettings)
 	const provider = createOpenAIOAuth(sharedSettings)
-	const resolveModels = createModelResolver(client, effectiveSettings.models, {
-		codexVersion: effectiveSettings.codexVersion,
-	})
+	const resolveModels = effectiveSettings.measurementMode
+		? async () => [...MEASUREMENT_MODELS]
+		: createModelResolver(client, effectiveSettings.models, {
+				codexVersion: effectiveSettings.codexVersion,
+			})
 	const requestLogger = createRequestLogger(effectiveSettings)
 
 	const handler = async (request: Request) => {
@@ -209,9 +240,7 @@ export const startOpenAIOAuthServer = async (
 			const status =
 				error instanceof RequestBodyTooLargeError ? error.status : 500
 			const type =
-				error instanceof RequestBodyTooLargeError
-					? error.type
-					: "server_error"
+				error instanceof RequestBodyTooLargeError ? error.type : "server_error"
 			await writeWebResponse(res, toErrorResponse(message, status, type))
 		}
 	})

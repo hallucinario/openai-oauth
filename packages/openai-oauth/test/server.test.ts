@@ -61,6 +61,20 @@ describe("openai oauth server", () => {
 		})
 	})
 
+	test("lists only the fixed measurement models", async () => {
+		const handler = createOpenAIOAuthFetchHandler({
+			localToken: false,
+			measurementMode: true,
+		})
+		const response = await handler(new Request("http://localhost/v1/models"))
+		expect(response.status).toBe(200)
+		const body = await response.json()
+		expect(body.data.map((entry: { id: string }) => entry.id)).toEqual([
+			"gpt-5.6-sol",
+			"gpt-5.6-luna",
+		])
+	})
+
 	test("requires the local bearer token for v1 routes", async () => {
 		const handler = createOpenAIOAuthFetchHandler({
 			localToken: "test-local-token-123",
@@ -237,6 +251,23 @@ describe("openai oauth server", () => {
 		})
 	})
 
+	test("attests the configured single-attempt measurement contract in health", async () => {
+		const handler = createOpenAIOAuthFetchHandler({ measurementMode: true })
+		const health = await handler(new Request("http://localhost/health"))
+		expect(health.headers.get("x-oauth-measurement-contract")).toBe(
+			"subscription-single-attempt-v1",
+		)
+		await expect(health.json()).resolves.toMatchObject({
+			measurement: {
+				contract: "subscription-single-attempt-v1",
+				models: ["gpt-5.6-sol", "gpt-5.6-luna"],
+				max_output_tokens: 4096,
+				max_retries: 0,
+				chat_completions_stream: false,
+			},
+		})
+	})
+
 	test("aggregates streaming responses requests into json when stream is false", async () => {
 		const authFilePath = await createAuthFile()
 		const fetch = vi.fn(async () => {
@@ -301,6 +332,139 @@ describe("openai oauth server", () => {
 		await fs.rm(path.dirname(authFilePath), {
 			recursive: true,
 			force: true,
+		})
+	})
+
+	test("returns measured Responses metadata and the actual completed payload", async () => {
+		const authFilePath = await createAuthFile()
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					[
+						"event: response.created",
+						'data: {"response":{"id":"resp_measured","model":"gpt-5.6-luna"}}',
+						"",
+						"event: response.completed",
+						'data: {"response":{"id":"resp_measured","model":"gpt-5.6-luna","usage":{"input_tokens":7,"output_tokens":8,"total_tokens":15},"output":[]}}',
+						"",
+					].join("\n"),
+					{ status: 200, headers: { "x-request-id": "upstream-456" } },
+				),
+		)
+		const handler = createOpenAIOAuthFetchHandler({
+			localToken: false,
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+			measurementMode: true,
+		})
+		const response = await handler(
+			new Request("http://localhost/v1/responses", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					model: "gpt-5.6-luna",
+					input: [],
+					stream: false,
+				}),
+			}),
+		)
+		expect(response.status).toBe(200)
+		expect(response.headers.get("x-oauth-upstream-request-id")).toBe(
+			"upstream-456",
+		)
+		expect(response.headers.get("x-oauth-response-model")).toBe("gpt-5.6-luna")
+		await expect(response.json()).resolves.toMatchObject({
+			id: "resp_measured",
+			model: "gpt-5.6-luna",
+			usage: { input_tokens: 7, output_tokens: 8, total_tokens: 15 },
+		})
+		expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+			max_output_tokens: 4096,
+		})
+	})
+
+	test("rejects an unapproved measured Responses model before dispatch", async () => {
+		const fetch = vi.fn()
+		const handler = createOpenAIOAuthFetchHandler({
+			localToken: false,
+			fetch,
+			measurementMode: true,
+		})
+		const response = await handler(
+			new Request("http://localhost/v1/responses", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ model: "gpt-5.4", input: [] }),
+			}),
+		)
+		expect(response.status).toBe(400)
+		expect(fetch).not.toHaveBeenCalled()
+	})
+
+	test("preserves measured evidence through the real AI SDK chat adapter", async () => {
+		const authFilePath = await createAuthFile()
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					[
+						"event: response.created",
+						'data: {"type":"response.created","response":{"id":"resp_chat","created_at":1,"model":"gpt-5.6-sol"}}',
+						"",
+						"event: response.completed",
+						'data: {"type":"response.completed","response":{"id":"resp_chat","model":"gpt-5.6-sol","usage":{"input_tokens":9,"output_tokens":4,"total_tokens":13,"input_tokens_details":{"cached_tokens":2}}}}',
+						"",
+					].join("\n"),
+					{
+						status: 200,
+						headers: {
+							"x-request-id": "upstream-chat-123",
+							"content-type": "text/event-stream",
+						},
+					},
+				),
+		)
+		const handler = createOpenAIOAuthFetchHandler({
+			localToken: false,
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+			measurementMode: true,
+		})
+		const response = await handler(
+			new Request("http://localhost/v1/chat/completions", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					model: "gpt-5.6-sol",
+					messages: [{ role: "user", content: "hi" }],
+					stream: false,
+					max_tokens: 4096,
+				}),
+			}),
+		)
+		expect(fetch).toHaveBeenCalledTimes(1)
+		expect(response.status).toBe(200)
+		expect(response.headers.get("x-oauth-upstream-request-id")).toBe(
+			"upstream-chat-123",
+		)
+		expect(response.headers.get("x-oauth-measurement-contract")).toBe(
+			"subscription-single-attempt-v1",
+		)
+		expect(response.headers.get("x-oauth-output-tokens")).toBe("4")
+		await expect(response.json()).resolves.toMatchObject({
+			id: "resp_chat",
+			model: "gpt-5.6-sol",
+			usage: {
+				prompt_tokens: 9,
+				completion_tokens: 4,
+				total_tokens: 13,
+				prompt_tokens_details: { cached_tokens: 2 },
+			},
+		})
+		expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+			model: "gpt-5.6-sol",
+			max_output_tokens: 4096,
 		})
 	})
 

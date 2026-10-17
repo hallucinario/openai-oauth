@@ -10,10 +10,7 @@ export class ConcurrencyLimiter {
 	private readonly max: number
 
 	constructor(maxConcurrentRequests: number) {
-		if (
-			!Number.isInteger(maxConcurrentRequests) ||
-			maxConcurrentRequests < 1
-		) {
+		if (!Number.isInteger(maxConcurrentRequests) || maxConcurrentRequests < 1) {
 			throw new RangeError(
 				`maxConcurrentRequests must be a positive integer, got ${maxConcurrentRequests}`,
 			)
@@ -21,10 +18,7 @@ export class ConcurrencyLimiter {
 		this.max = maxConcurrentRequests
 	}
 
-	async run<T>(
-		fn: () => Promise<T>,
-		signal?: AbortSignal | null,
-	): Promise<T> {
+	async run<T>(fn: () => Promise<T>, signal?: AbortSignal | null): Promise<T> {
 		await this.acquire(signal)
 		try {
 			return await fn()
@@ -52,12 +46,11 @@ export class ConcurrencyLimiter {
 				if (index !== -1) {
 					this.queue.splice(index, 1)
 				}
-				reject(signal!.reason)
+				reject(signal?.reason)
 			}
 
 			signal?.addEventListener("abort", onAbort, { once: true })
-			waiter.cleanup = () =>
-				signal?.removeEventListener("abort", onAbort)
+			waiter.cleanup = () => signal?.removeEventListener("abort", onAbort)
 
 			this.queue.push(waiter)
 		})
