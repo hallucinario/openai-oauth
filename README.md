@@ -112,8 +112,8 @@ input, output and total token usage. When both request-ID headers are present,
 `x-request-id` takes precedence; if it is present but empty, the request is
 rejected rather than falling back. Receipts identify the selected header in
 `x-oauth-upstream-request-id-header`. This precedence follows the official
-Codex response debug context at source commit
-`bc9cad3473d4092d34d11a8d050c2dc199a74959`
+Codex response debug context at [source commit
+`bc9cad3473d4092d34d11a8d050c2dc199a74959`](https://github.com/openai/codex/blob/bc9cad3473d4092d34d11a8d050c2dc199a74959/codex-rs/response-debug-context/src/lib.rs#L26-L36)
 (`codex-rs/response-debug-context/src/lib.rs`, lines 5–7 and 26–36).
 The lane returns HTTP 502 when evidence is
 missing, the observed model differs from the request, or observed output exceeds
