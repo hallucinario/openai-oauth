@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import {
@@ -54,6 +55,7 @@ const handleRoutes = async (
 	resolveModels: () => Promise<string[]>,
 	requestLogger: ReturnType<typeof createRequestLogger>,
 	localToken: string | false,
+	instanceId: string,
 ): Promise<Response> => {
 	if (request.method === "OPTIONS") {
 		return toPreflightResponse(request, settings.allowedOrigins)
@@ -73,6 +75,7 @@ const handleRoutes = async (
 				ok: true,
 				replay_state: "stateless",
 				...(settings.measurementMode && {
+					instance_id: instanceId,
 					measurement: {
 						contract: MEASUREMENT_CONTRACT,
 						models: MEASUREMENT_MODELS,
@@ -154,6 +157,7 @@ export const createOpenAIOAuthFetchHandler = (
 		)
 	}
 	const localToken = resolveLocalToken(settings.localToken)
+	const instanceId = randomUUID()
 	const effectiveSettings: OpenAIOAuthServerOptions = {
 		...settings,
 		localToken,
@@ -173,8 +177,9 @@ export const createOpenAIOAuthFetchHandler = (
 	const requestLogger = createRequestLogger(effectiveSettings)
 
 	const handler = async (request: Request) => {
+		let response: Response
 		try {
-			const response = await handleRoutes(
+			response = await handleRoutes(
 				request,
 				effectiveSettings,
 				provider,
@@ -182,24 +187,24 @@ export const createOpenAIOAuthFetchHandler = (
 				resolveModels,
 				requestLogger,
 				localToken,
-			)
-			return withCorsHeaders(
-				response,
-				request,
-				effectiveSettings.allowedOrigins,
+				instanceId,
 			)
 		} catch (error) {
-			const response = toErrorResponse(
+			response = toErrorResponse(
 				error instanceof Error ? error.message : "Unexpected server error.",
 				500,
 				"server_error",
 			)
-			return withCorsHeaders(
-				response,
-				request,
-				effectiveSettings.allowedOrigins,
-			)
 		}
+		response = withCorsHeaders(
+			response,
+			request,
+			effectiveSettings.allowedOrigins,
+		)
+		if (effectiveSettings.measurementMode) {
+			response.headers.set("x-oauth-instance-id", instanceId)
+		}
+		return response
 	}
 
 	return Object.assign(handler, {
