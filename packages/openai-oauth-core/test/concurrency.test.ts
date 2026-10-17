@@ -59,7 +59,10 @@ describe("ConcurrencyLimiter", () => {
 		const blockingTask = limiter.run(() => blocker.promise)
 
 		const controller = new AbortController()
-		const abortedTask = limiter.run(async () => "should not run", controller.signal)
+		const abortedTask = limiter.run(
+			async () => "should not run",
+			controller.signal,
+		)
 
 		const normalTask = limiter.run(async () => "normal")
 

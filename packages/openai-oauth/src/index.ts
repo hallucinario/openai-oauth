@@ -4,8 +4,8 @@ export {
 } from "./server.js"
 export {
 	defaultOpenAIOAuthModels,
-	type OpenAIOAuthServerLogEvent,
 	type OpenAIOAuthFetchHandler,
+	type OpenAIOAuthServerLogEvent,
 	type OpenAIOAuthServerOptions,
 	type RunningOpenAIOAuthServer,
 } from "./types.js"

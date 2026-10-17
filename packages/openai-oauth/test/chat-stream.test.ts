@@ -10,6 +10,7 @@ vi.mock("ai", async (importOriginal) => {
 })
 
 import { streamText } from "ai"
+import type { OpenAIOAuthProvider } from "../../openai-oauth-provider/src/index.js"
 import { streamChatCompletions } from "../src/chat-stream.js"
 import type { ChatRequest } from "../src/types.js"
 
@@ -38,13 +39,18 @@ async function collectSseData(response: Response): Promise<unknown[]> {
 }
 
 /** Find SSE chunks that contain tool_calls in the delta. */
-function findToolCallChunks(chunks: unknown[]): unknown[] {
-	return chunks.filter(
-		(chunk: any) => chunk.choices?.[0]?.delta?.tool_calls != null,
-	)
+type ToolChunk = {
+	choices: { delta: { tool_calls: { function: { arguments: string } }[] } }[]
 }
 
-const dummyProvider = (() => ({})) as any
+function findToolCallChunks(chunks: unknown[]): ToolChunk[] {
+	return chunks.filter(
+		(chunk) =>
+			(chunk as ToolChunk | null)?.choices?.[0]?.delta?.tool_calls != null,
+	) as ToolChunk[]
+}
+
+const dummyProvider = (() => ({})) as OpenAIOAuthProvider
 const dummyLogContext = {
 	requestId: "test-req",
 	startedAt: Date.now(),
@@ -81,7 +87,7 @@ describe("streamChatCompletions", () => {
 					finishReason: "tool-calls",
 					totalUsage: { promptTokens: 10, completionTokens: 20 },
 				},
-			]) as any,
+			]) as unknown as ReturnType<typeof streamText>,
 		)
 
 		const request: ChatRequest = {
@@ -133,9 +139,9 @@ describe("streamChatCompletions", () => {
 		})
 
 		// Remaining chunks: deltas with argument fragments
-		const args = (toolChunks as any[])
+		const args = toolChunks
 			.slice(1)
-			.map((c) => c.choices[0].delta.tool_calls[0].function.arguments)
+			.map((c) => c.choices[0]?.delta.tool_calls[0]?.function.arguments)
 			.join("")
 
 		expect(args).toBe('{"file_path":"/etc/hosts"}')
@@ -150,7 +156,7 @@ describe("streamChatCompletions", () => {
 					finishReason: "stop",
 					totalUsage: { promptTokens: 5, completionTokens: 2 },
 				},
-			]) as any,
+			]) as unknown as ReturnType<typeof streamText>,
 		)
 
 		const request: ChatRequest = {
@@ -198,7 +204,7 @@ describe("streamChatCompletions", () => {
 					finishReason: "tool-calls",
 					totalUsage: { promptTokens: 10, completionTokens: 20 },
 				},
-			]) as any,
+			]) as unknown as ReturnType<typeof streamText>,
 		)
 
 		const request: ChatRequest = {
@@ -253,8 +259,8 @@ describe("streamChatCompletions", () => {
 		})
 
 		// Second chunk: complete arguments from tool-call fallback
-		const args = (toolChunks[1] as any).choices[0].delta.tool_calls[0]
-			.function.arguments
+		const args =
+			toolChunks[1]?.choices[0]?.delta.tool_calls[0]?.function.arguments ?? ""
 		expect(JSON.parse(args)).toEqual({
 			file_path: "/etc/hosts",
 			offset: 0,

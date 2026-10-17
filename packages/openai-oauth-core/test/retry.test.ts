@@ -38,14 +38,12 @@ describe("withRetry", () => {
 		let calls = 0
 		const fn = vi.fn(() => {
 			calls++
-			return calls === 1
-				? tooManyRequests({ "Retry-After": "5" })
-				: ok()
+			return calls === 1 ? tooManyRequests({ "Retry-After": "5" }) : ok()
 		})
 		const sleepSpy = vi.fn(() => Promise.resolve())
 		await withRetry(fn, { maxRetries: 3, sleep: sleepSpy })
 		expect(sleepSpy).toHaveBeenCalledTimes(1)
-		expect(sleepSpy.mock.calls[0]![0]).toBe(5000)
+		expect(sleepSpy.mock.calls[0]?.[0]).toBe(5000)
 	})
 
 	it("respects Retry-After as HTTP-date", async () => {
@@ -54,9 +52,7 @@ describe("withRetry", () => {
 		let calls = 0
 		const fn = vi.fn(() => {
 			calls++
-			return calls === 1
-				? tooManyRequests({ "Retry-After": futureDate })
-				: ok()
+			return calls === 1 ? tooManyRequests({ "Retry-After": futureDate }) : ok()
 		})
 		const sleepSpy = vi.fn(() => Promise.resolve())
 		await withRetry(fn, {
@@ -65,7 +61,7 @@ describe("withRetry", () => {
 			now: () => fixedNow,
 		})
 		expect(sleepSpy).toHaveBeenCalledTimes(1)
-		expect(sleepSpy.mock.calls[0]![0]).toBe(10000)
+		expect(sleepSpy.mock.calls[0]?.[0]).toBe(10000)
 	})
 
 	it("falls back to exponential jitter when no Retry-After", async () => {
@@ -83,19 +79,15 @@ describe("withRetry", () => {
 			sleep: sleepSpy,
 		})
 		expect(sleepSpy).toHaveBeenCalledTimes(2)
-		expect(sleepSpy.mock.calls[0]![0]).toBe(500)
-		expect(sleepSpy.mock.calls[1]![0]).toBe(1000)
+		expect(sleepSpy.mock.calls[0]?.[0]).toBe(500)
+		expect(sleepSpy.mock.calls[1]?.[0]).toBe(1000)
 		vi.restoreAllMocks()
 	})
 
 	it("aborts before sleep when signal is already aborted", async () => {
 		const controller = new AbortController()
 		controller.abort(new Error("cancelled"))
-		let calls = 0
-		const fn = vi.fn(() => {
-			calls++
-			return tooManyRequests()
-		})
+		const fn = vi.fn(() => tooManyRequests())
 		await expect(
 			withRetry(fn, { maxRetries: 3, sleep: noopSleep }, controller.signal),
 		).rejects.toThrow("cancelled")
@@ -104,11 +96,7 @@ describe("withRetry", () => {
 
 	it("aborts during sleep", async () => {
 		const controller = new AbortController()
-		let calls = 0
-		const fn = vi.fn(() => {
-			calls++
-			return tooManyRequests()
-		})
+		const fn = vi.fn(() => tooManyRequests())
 		const blockingSleep = (_ms: number, signal?: AbortSignal | null) =>
 			new Promise<void>((_resolve, reject) => {
 				if (signal?.aborted) {
@@ -143,9 +131,7 @@ describe("withRetry", () => {
 		let calls = 0
 		const fn = vi.fn(() => {
 			calls++
-			return calls === 1
-				? tooManyRequests({ "Retry-After": pastDate })
-				: ok()
+			return calls === 1 ? tooManyRequests({ "Retry-After": pastDate }) : ok()
 		})
 		const sleepSpy = vi.fn(() => Promise.resolve())
 		await withRetry(fn, {
@@ -156,7 +142,7 @@ describe("withRetry", () => {
 			now: () => fixedNow,
 		})
 		expect(sleepSpy).toHaveBeenCalledTimes(1)
-		expect(sleepSpy.mock.calls[0]![0]).toBe(500)
+		expect(sleepSpy.mock.calls[0]?.[0]).toBe(500)
 		vi.restoreAllMocks()
 	})
 

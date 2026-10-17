@@ -1,4 +1,4 @@
-import { generateText } from "ai"
+import { APICallError, generateText } from "ai"
 import { DEFAULT_CODEX_BASE_URL } from "../../openai-oauth-core/src/index.js"
 import {
 	MEASUREMENT_CONTRACT,
@@ -198,6 +198,17 @@ export const handleChatCompletionsRequest = async (
 				headers,
 			)
 		}
+		if (
+			body.max_output_tokens !== undefined &&
+			body.max_output_tokens !== MEASUREMENT_MAX_OUTPUT_TOKENS
+		) {
+			return toErrorResponse(
+				"Measurement max_output_tokens must be 4096.",
+				400,
+				"invalid_request_error",
+				headers,
+			)
+		}
 		if (body.stream === true) {
 			return toErrorResponse(
 				"Measurement chat completions require stream=false.",
@@ -304,6 +315,32 @@ export const handleChatCompletionsRequest = async (
 			message:
 				error instanceof Error ? error.message : "Unexpected server error.",
 		})
+		if (
+			measurementMode &&
+			APICallError.isInstance(error) &&
+			error.statusCode !== undefined
+		) {
+			const publicHeaders = new Headers(headers)
+			const upstreamHeaders = new Headers(error.responseHeaders)
+			for (const key of [
+				"content-type",
+				"retry-after",
+				"x-oauth-measurement-contract",
+				"x-oauth-upstream-base-url",
+				"x-oauth-upstream-request-id",
+				"x-oauth-upstream-request-count",
+			]) {
+				const value = upstreamHeaders.get(key)
+				if (value !== null) publicHeaders.set(key, value)
+			}
+			return new Response(
+				error.responseBody ??
+					JSON.stringify({
+						error: { type: "upstream_error", message: error.message },
+					}),
+				{ status: error.statusCode, headers: publicHeaders },
+			)
+		}
 		throw error
 	}
 }

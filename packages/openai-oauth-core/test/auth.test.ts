@@ -154,7 +154,9 @@ describe("loadAuthTokens", () => {
 	})
 
 	test("rejects custom token urls unless explicitly allowed", async () => {
-		const root = await fs.mkdtemp(path.join(os.tmpdir(), "auth-token-url-deny-"))
+		const root = await fs.mkdtemp(
+			path.join(os.tmpdir(), "auth-token-url-deny-"),
+		)
 		const authPath = path.join(root, "auth.json")
 		const fetch = vi.fn()
 

@@ -5,7 +5,7 @@ vi.mock("ai", async (importOriginal) => {
 	return { ...actual, generateText: vi.fn() }
 })
 
-import { generateText } from "ai"
+import { APICallError, generateText } from "ai"
 import type { OpenAIOAuthProvider } from "../../openai-oauth-provider/src/index.js"
 import { handleChatCompletionsRequest } from "../src/chat-completions.js"
 
@@ -20,6 +20,65 @@ const request = (body: Record<string, unknown>) =>
 	})
 
 describe("subscription measurement chat completion", () => {
+	test.each([
+		429, 502,
+	])("preserves upstream %s and measurement evidence after the SDK rejects", async (statusCode) => {
+		mockedGenerateText.mockRejectedValueOnce(
+			new APICallError({
+				message: "upstream refused",
+				url: "http://127.0.0.1/v1/chat/completions",
+				requestBodyValues: {},
+				statusCode,
+				responseHeaders: {
+					"content-type": "application/json",
+					"x-oauth-measurement-contract": "subscription-single-attempt-v1",
+					"x-oauth-upstream-request-id": "upstream-error-1",
+					"x-oauth-upstream-request-count": "1",
+				},
+				responseBody: JSON.stringify({
+					error: {
+						type:
+							statusCode === 429 ? "rate_limit" : "measurement_evidence_error",
+					},
+				}),
+			}),
+		)
+		const response = await handleChatCompletionsRequest(
+			request({ model: "gpt-5.6-sol", messages: [], max_tokens: 4096 }),
+			provider,
+			undefined,
+			undefined,
+			true,
+		)
+		expect(response.status).toBe(statusCode)
+		expect(response.headers.get("x-oauth-upstream-request-id")).toBe(
+			"upstream-error-1",
+		)
+		expect(response.headers.get("x-oauth-upstream-request-count")).toBe("1")
+		await expect(response.json()).resolves.toMatchObject({
+			error: {
+				type: statusCode === 429 ? "rate_limit" : "measurement_evidence_error",
+			},
+		})
+	})
+
+	test("rejects conflicting max_output_tokens before dispatch", async () => {
+		mockedGenerateText.mockClear()
+		const response = await handleChatCompletionsRequest(
+			request({
+				model: "gpt-5.6-sol",
+				messages: [],
+				max_tokens: 4096,
+				max_output_tokens: 512,
+			}),
+			provider,
+			undefined,
+			undefined,
+			true,
+		)
+		expect(response.status).toBe(400)
+		expect(mockedGenerateText).not.toHaveBeenCalled()
+	})
 	test("disables AI SDK retries and publishes observed upstream evidence", async () => {
 		mockedGenerateText.mockResolvedValueOnce({
 			text: "measured",

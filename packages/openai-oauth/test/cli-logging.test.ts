@@ -30,11 +30,9 @@ describe("cli logging", () => {
 
 	test("prints the generated local API key when auth is enabled", () => {
 		expect(
-			toStartupMessage(
-				"http://127.0.0.1:10531/v1",
-				["gpt-5.4"],
-				{ localToken: "test-local-token-123" },
-			),
+			toStartupMessage("http://127.0.0.1:10531/v1", ["gpt-5.4"], {
+				localToken: "test-local-token-123",
+			}),
 		).toBe(
 			[
 				"OpenAI-compatible endpoint ready at http://127.0.0.1:10531/v1",
