@@ -57,9 +57,19 @@ export const inspectMeasurementResponse = async (
 		"https://chatgpt.com/backend-api/codex",
 	)
 	headers.set("x-oauth-upstream-request-count", "1")
-	const upstreamRequestId = headers.get("x-request-id")
-	if (upstreamRequestId) {
+	headers.delete("x-oauth-upstream-request-id")
+	headers.delete("x-oauth-upstream-request-id-header")
+	const requestIdHeader = headers.has("x-request-id")
+		? "x-request-id"
+		: headers.has("x-oai-request-id")
+			? "x-oai-request-id"
+			: undefined
+	const upstreamRequestId = requestIdHeader
+		? headers.get(requestIdHeader)
+		: null
+	if (requestIdHeader && upstreamRequestId) {
 		headers.set("x-oauth-upstream-request-id", upstreamRequestId)
+		headers.set("x-oauth-upstream-request-id-header", requestIdHeader)
 	}
 
 	if (!upstream.ok) {

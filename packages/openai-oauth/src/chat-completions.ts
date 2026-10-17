@@ -47,6 +47,9 @@ const readMeasurementEvidence = (
 	const responseId = headers.get("x-oauth-response-id")
 	const responseModel = headers.get("x-oauth-response-model")
 	const upstreamRequestId = headers.get("x-oauth-upstream-request-id")
+	const upstreamRequestIdHeader = headers.get(
+		"x-oauth-upstream-request-id-header",
+	)
 	const input = headers.get("x-oauth-input-tokens")
 	const output = headers.get("x-oauth-output-tokens")
 	const total = headers.get("x-oauth-total-tokens")
@@ -55,6 +58,8 @@ const readMeasurementEvidence = (
 	if (
 		!responseId ||
 		!upstreamRequestId ||
+		(upstreamRequestIdHeader !== "x-request-id" &&
+			upstreamRequestIdHeader !== "x-oai-request-id") ||
 		responseModel !== requestedModel ||
 		headers.get("x-oauth-measurement-contract") !== MEASUREMENT_CONTRACT ||
 		headers.get("x-oauth-upstream-base-url") !== DEFAULT_CODEX_BASE_URL ||
@@ -86,6 +91,7 @@ const readMeasurementEvidence = (
 		"x-oauth-measurement-contract",
 		"x-oauth-upstream-base-url",
 		"x-oauth-upstream-request-id",
+		"x-oauth-upstream-request-id-header",
 		"x-oauth-upstream-request-count",
 		"x-oauth-response-id",
 		"x-oauth-response-model",
@@ -328,6 +334,7 @@ export const handleChatCompletionsRequest = async (
 				"x-oauth-measurement-contract",
 				"x-oauth-upstream-base-url",
 				"x-oauth-upstream-request-id",
+				"x-oauth-upstream-request-id-header",
 				"x-oauth-upstream-request-count",
 			]) {
 				const value = upstreamHeaders.get(key)

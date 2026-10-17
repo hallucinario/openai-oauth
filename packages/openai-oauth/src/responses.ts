@@ -78,6 +78,7 @@ export const handleResponsesRequest = async (
 			"x-oauth-measurement-contract",
 			"x-oauth-upstream-base-url",
 			"x-oauth-upstream-request-id",
+			"x-oauth-upstream-request-id-header",
 			"x-oauth-upstream-request-count",
 			"x-oauth-response-id",
 			"x-oauth-response-model",
