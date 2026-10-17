@@ -33,6 +33,7 @@ describe("subscription measurement chat completion", () => {
 					"content-type": "application/json",
 					"x-oauth-measurement-contract": "subscription-single-attempt-v1",
 					"x-oauth-upstream-request-id": "upstream-error-1",
+					"x-oauth-upstream-request-id-header": "x-oai-request-id",
 					"x-oauth-upstream-request-count": "1",
 				},
 				responseBody: JSON.stringify({
@@ -53,6 +54,9 @@ describe("subscription measurement chat completion", () => {
 		expect(response.status).toBe(statusCode)
 		expect(response.headers.get("x-oauth-upstream-request-id")).toBe(
 			"upstream-error-1",
+		)
+		expect(response.headers.get("x-oauth-upstream-request-id-header")).toBe(
+			"x-oai-request-id",
 		)
 		expect(response.headers.get("x-oauth-upstream-request-count")).toBe("1")
 		await expect(response.json()).resolves.toMatchObject({
@@ -91,6 +95,7 @@ describe("subscription measurement chat completion", () => {
 					"x-oauth-measurement-contract": "subscription-single-attempt-v1",
 					"x-oauth-upstream-base-url": "https://chatgpt.com/backend-api/codex",
 					"x-oauth-upstream-request-id": "upstream-123",
+					"x-oauth-upstream-request-id-header": "x-request-id",
 					"x-oauth-upstream-request-count": "1",
 					"x-oauth-response-id": "resp_measured",
 					"x-oauth-response-model": "gpt-5.6-sol",
@@ -118,6 +123,9 @@ describe("subscription measurement chat completion", () => {
 		expect(response.status).toBe(200)
 		expect(response.headers.get("x-oauth-upstream-request-id")).toBe(
 			"upstream-123",
+		)
+		expect(response.headers.get("x-oauth-upstream-request-id-header")).toBe(
+			"x-request-id",
 		)
 		expect(response.headers.get("x-oauth-measurement-contract")).toBe(
 			"subscription-single-attempt-v1",

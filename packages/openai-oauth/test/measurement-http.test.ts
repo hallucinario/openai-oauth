@@ -199,6 +199,7 @@ describe("measurement HTTP boot attestation", () => {
 					"x-oauth-upstream-base-url": upstreamBase,
 					"x-oauth-upstream-request-count": "1",
 					"x-oauth-upstream-request-id": "upstream-measured-http",
+					"x-oauth-upstream-request-id-header": "x-request-id",
 				})) {
 					expect(response.headers.get(header), header).toBe(value)
 				}
@@ -236,6 +237,44 @@ describe("measurement HTTP boot attestation", () => {
 			})
 		}
 	}
+
+	test.each(
+		endpoints,
+	)("propagates alternate upstream request-ID provenance through %s", async (endpoint) => {
+		const upstreamFetch = vi.fn<typeof fetch>(
+			async () =>
+				new Response(measuredSse("gpt-5.6-sol"), {
+					status: 200,
+					headers: {
+						"x-oai-request-id": "alternate-http-id",
+						"content-type": "text/event-stream",
+					},
+				}),
+		)
+		const server = await start(upstreamFetch)
+		const response = await fetch(`${server.url}/${endpoint}`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${server.localToken}`,
+			},
+			body: JSON.stringify({
+				model: "gpt-5.6-sol",
+				stream: false,
+				...(endpoint === "chat/completions"
+					? { messages: [{ role: "user", content: "hi" }] }
+					: { input: "hi" }),
+			}),
+		})
+		expect(response.status).toBe(200)
+		expect(response.headers.get("x-oauth-upstream-request-id")).toBe(
+			"alternate-http-id",
+		)
+		expect(response.headers.get("x-oauth-upstream-request-id-header")).toBe(
+			"x-oai-request-id",
+		)
+		expect(upstreamFetch).toHaveBeenCalledTimes(1)
+	})
 
 	test("leaves ordinary health unchanged and does not dispatch upstream", async () => {
 		const upstreamFetch = vi.fn<typeof fetch>(async () => {

@@ -151,12 +151,130 @@ describe("subscription measurement transport", () => {
 		expect(response.headers.get("x-oauth-upstream-request-id")).toBe(
 			"upstream-123",
 		)
+		expect(response.headers.get("x-oauth-upstream-request-id-header")).toBe(
+			"x-request-id",
+		)
 		expect(response.headers.get("x-oauth-response-id")).toBe("resp_measured")
 		expect(response.headers.get("x-oauth-response-model")).toBe("gpt-5.6-sol")
 		expect(response.headers.get("x-oauth-input-tokens")).toBe("12")
 		expect(response.headers.get("x-oauth-output-tokens")).toBe("23")
 		expect(response.headers.get("x-oauth-upstream-request-count")).toBe("1")
 		expect(await response.text()).toContain("response.completed")
+	})
+
+	test.each([
+		[
+			"alternate ID header",
+			{ "x-oai-request-id": "alternate-123" },
+			"alternate-123",
+			"x-oai-request-id",
+		],
+		[
+			"primary ID header when both are present",
+			{ "x-request-id": "primary-123", "x-oai-request-id": "alternate-123" },
+			"primary-123",
+			"x-request-id",
+		],
+	])("uses the genuine %s and records its provenance", async (_case, responseHeaders, requestId, headerName) => {
+		const authFilePath = await createAuthFile()
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					measurementSse({
+						model: "gpt-5.6-sol",
+						usage: { input_tokens: 12, output_tokens: 23, total_tokens: 35 },
+					}),
+					{ status: 200, headers: responseHeaders },
+				),
+		)
+		const oauthFetch = createCodexOAuthFetch({
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+			measurementMode: true,
+		})
+		const response = await oauthFetch("responses", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ model: "gpt-5.6-sol" }),
+		})
+		expect(response.status).toBe(200)
+		expect(response.headers.get("x-oauth-upstream-request-id")).toBe(requestId)
+		expect(response.headers.get("x-oauth-upstream-request-id-header")).toBe(
+			headerName,
+		)
+		expect(fetch).toHaveBeenCalledTimes(1)
+	})
+
+	test("does not fall back from an empty primary ID or trust forged receipt metadata", async () => {
+		const authFilePath = await createAuthFile()
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					measurementSse({
+						model: "gpt-5.6-sol",
+						usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+					}),
+					{
+						status: 200,
+						headers: {
+							"x-request-id": "",
+							"x-oai-request-id": "alternate-123",
+							"x-oauth-upstream-request-id": "forged-id",
+							"x-oauth-upstream-request-id-header": "x-request-id",
+							"cf-ray": "ray-123",
+						},
+					},
+				),
+		)
+		const oauthFetch = createCodexOAuthFetch({
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+			measurementMode: true,
+		})
+		const response = await oauthFetch("responses", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ model: "gpt-5.6-sol" }),
+		})
+		expect(response.status).toBe(502)
+		expect(response.headers.get("x-oauth-upstream-request-id")).toBeNull()
+		expect(
+			response.headers.get("x-oauth-upstream-request-id-header"),
+		).toBeNull()
+		expect(fetch).toHaveBeenCalledTimes(1)
+	})
+
+	test("does not treat cf-ray as an upstream request ID", async () => {
+		const authFilePath = await createAuthFile()
+		const fetch = vi.fn(
+			async () =>
+				new Response(
+					measurementSse({
+						model: "gpt-5.6-sol",
+						usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
+					}),
+					{ status: 200, headers: { "cf-ray": "ray-only-123" } },
+				),
+		)
+		const oauthFetch = createCodexOAuthFetch({
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+			measurementMode: true,
+		})
+		const response = await oauthFetch("responses", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ model: "gpt-5.6-sol" }),
+		})
+		expect(response.status).toBe(502)
+		expect(response.headers.get("x-oauth-upstream-request-id")).toBeNull()
+		expect(
+			response.headers.get("x-oauth-upstream-request-id-header"),
+		).toBeNull()
+		expect(fetch).toHaveBeenCalledTimes(1)
 	})
 
 	test("does not retry a 429 in measurement mode", async () => {

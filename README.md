@@ -106,8 +106,16 @@ that the upstream enforced a cap. A supplied `max_tokens` or
 The measured Chat Completions endpoint requires `stream: false`. Direct
 `/v1/responses` requests may ask for a stream, but the proxy buffers the
 upstream SSE response first to validate the completed event. The measurement
-lane requires the upstream `x-request-id`, completed response ID and model, and
-input, output and total token usage. It returns HTTP 502 when evidence is
+lane requires a nonempty upstream request ID from `x-request-id` or, when that
+header is absent, `x-oai-request-id`, plus completed response ID and model and
+input, output and total token usage. When both request-ID headers are present,
+`x-request-id` takes precedence; if it is present but empty, the request is
+rejected rather than falling back. Receipts identify the selected header in
+`x-oauth-upstream-request-id-header`. This precedence follows the official
+Codex response debug context at source commit
+`bc9cad3473d4092d34d11a8d050c2dc199a74959`
+(`codex-rs/response-debug-context/src/lib.rs`, lines 5–7 and 26–36).
+The lane returns HTTP 502 when evidence is
 missing, the observed model differs from the request, or observed output exceeds
 4096 tokens. An upstream 429 is returned after one request. Missing usage is
 never reported as zero in this lane.
@@ -118,6 +126,7 @@ never reported as zero in this lane.
 request, retry count and Chat Completions stream setting. Successful measured
 responses carry that contract header plus `x-oauth-upstream-base-url`,
 `x-oauth-upstream-request-count`, `x-oauth-upstream-request-id`,
+`x-oauth-upstream-request-id-header`,
 `x-oauth-response-id`, `x-oauth-response-model`, `x-oauth-input-tokens`,
 `x-oauth-output-tokens`, and `x-oauth-total-tokens`. Cached input and reasoning
 output tokens appear as `x-oauth-cached-input-tokens` and
